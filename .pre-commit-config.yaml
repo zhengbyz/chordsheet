@@ -1,0 +1,19 @@
+# 提交前自动运行的检查。安装：pre-commit install
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace      # 删行尾空格
+      - id: end-of-file-fixer        # 文件末尾补换行
+      - id: check-yaml               # YAML 语法检查
+      - id: check-added-large-files  # 拦截误提交的大文件
+        args: ['--maxkb=5000']
+      - id: check-merge-conflict     # 拦截未解决的冲突标记
+      - id: detect-private-key       # 拦截误提交的私钥
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff                     # 静态检查
+        args: [--fix]
+      - id: ruff-format              # 代码格式化
