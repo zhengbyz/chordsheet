@@ -18,6 +18,11 @@ dev = [
     "ruff>=0.16",
 ]
 
+[tool.pytest.ini_options]
+# 让 tests/ 里能 import transcribe，不用装包也不用 sys.path 手脚
+pythonpath = ["."]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
