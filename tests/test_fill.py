@@ -155,33 +155,28 @@ def test_same_chord_retriggers_at_each_bar() -> None:
     assert len(notes) == 12  # 4 小节 × 3 个音
 
 
-def test_retrigger_can_be_turned_off() -> None:
+def test_sustain_mode_merges_repeats() -> None:
     cells = [ChordCell(i + 1, i * 2.0, (i + 1) * 2.0, "C:maj") for i in range(4)]
-    notes = cells_to_notes(cells, with_bass=False, retrigger_each_bar=False)
+    notes = cells_to_notes(cells, with_bass=False, sustain=True)
 
     assert len(notes) == 3
     assert all(n.start == pytest.approx(0.0) and n.end == pytest.approx(8.0) for n in notes)
 
 
-def test_common_tone_still_held_within_a_bar() -> None:
-    """小节内换和弦时，共有的绝对音高仍然保持不断。"""
-    cells = [ChordCell(1, 0.0, 1.0, "C:maj"), ChordCell(1, 1.0, 2.0, "G:maj")]
-    notes = cells_to_notes(cells, with_bass=False)
+def test_no_note_spans_a_cell_boundary() -> None:
+    """任何音符都不跨越格子边界——不管那是小节线还是小节内的和弦变化。
 
-    held = [n for n in notes if n.start == pytest.approx(0.0) and n.end == pytest.approx(2.0)]
-    assert [n.pitch for n in held] == [67]
-
-
-def test_notes_never_cross_a_bar_line() -> None:
-    """开启重触发后，没有任何音符跨越小节线。"""
+    共有音连着不断会把和弦边界在卷帘里糊掉。
+    """
     cells = [
         ChordCell(1, 0.0, 2.0, "C:maj"),
-        ChordCell(2, 2.0, 4.0, "C:maj"),
-        ChordCell(3, 4.0, 6.0, "G:maj"),
+        ChordCell(1, 2.0, 3.0, "G:maj"),  # 同小节内换和弦，共有 67
+        ChordCell(2, 3.0, 5.0, "C:maj"),  # 跨小节
+        ChordCell(3, 5.0, 7.0, "C:maj"),  # 跨小节且同和弦
     ]
     notes = cells_to_notes(cells)
+    boundaries = [2.0, 3.0, 5.0]
 
     for note in notes:
-        assert note.start >= 0 and note.end <= 6.0
-        crosses = [b for b in (2.0, 4.0) if note.start < b < note.end]
-        assert not crosses, f"音符 {note.pitch} 跨过了小节线 {crosses}"
+        crossed = [b for b in boundaries if note.start < b < note.end]
+        assert not crossed, f"音符 {note.pitch} 跨过了 {crossed}"

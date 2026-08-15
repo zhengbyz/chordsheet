@@ -155,29 +155,43 @@ def test_no_chord_yields_no_notes() -> None:
     assert chord_notes("乱写") == []
 
 
-def test_repeated_chord_retriggers_at_each_bar() -> None:
-    """同一和弦持续多个小节时，每小节都重新触发一次。
-
-    导入 DAW 后每小节都能看到、听到一次和弦，这是和弦谱的常规写法。
-    连成一个长音的旧行为见 retrigger_each_bar=False。
-    """
+def test_every_cell_retriggers_the_whole_chord() -> None:
+    """每个格子都完整重触发，同一和弦跨三个小节 = 三组音块。"""
     cells = [ChordCell(i + 1, i * 2.0, (i + 1) * 2.0, "C:maj") for i in range(3)]
 
-    assert len(cells_to_notes(cells, with_bass=False)) == 9  # 3 小节 × 3 个音
-    assert len(cells_to_notes(cells, with_bass=False, retrigger_each_bar=False)) == 3
+    assert len(cells_to_notes(cells, with_bass=False)) == 9  # 3 格 × 3 个音
+    assert len(cells_to_notes(cells, with_bass=False, sustain=True)) == 3
 
 
-def test_chord_change_within_a_bar_only_retriggers_new_notes() -> None:
-    """小节内换和弦时只有新音重新触发，共有的绝对音高保持不断。
+def test_common_tone_also_retriggers_on_chord_change() -> None:
+    """共有音也要断开重弹，不能连成一条长音块。
 
-    原位记法下 C=60,64,67 而 G=67,71,74，两者共有 67，所以 2.0 秒处只新起 71 和 74。
-    跨小节的情况见 test_fill.py 的重触发用例。
+    A# 大三是 70-74-77、D# 大三是 63-67-70，共有 70。连着不断看起来像
+    voice leading，但在卷帘里会把两个和弦的边界糊掉——记谱要的是
+    「这里换和弦了」这个信息。
     """
-    cells = [ChordCell(1, 0.0, 2.0, "C:maj"), ChordCell(1, 2.0, 4.0, "G:maj")]
+    cells = [ChordCell(1, 0.0, 2.0, "A#:maj"), ChordCell(1, 2.0, 4.0, "D#:maj")]
     notes = cells_to_notes(cells, with_bass=False)
 
-    assert {n.pitch for n in notes if n.start == pytest.approx(0.0)} == {60, 64, 67}
-    assert {n.pitch for n in notes if n.start == pytest.approx(2.0)} == {71, 74}
+    assert {n.pitch for n in notes if n.start == pytest.approx(0.0)} == {70, 74, 77}
+    assert {n.pitch for n in notes if n.start == pytest.approx(2.0)} == {63, 67, 70}
+    # 共有的 70 必须是两个独立音符，而不是一个 0→4 秒的长音
+    seventies = sorted((n.start, n.end) for n in notes if n.pitch == 70)
+    assert seventies == [
+        (pytest.approx(0.0), pytest.approx(2.0)),
+        (pytest.approx(2.0), pytest.approx(4.0)),
+    ]
+
+
+def test_sustain_mode_still_holds_common_tones() -> None:
+    """sustain=True 保留旧行为，供需要 voice leading 的场合。"""
+    cells = [ChordCell(1, 0.0, 2.0, "A#:maj"), ChordCell(1, 2.0, 4.0, "D#:maj")]
+    notes = cells_to_notes(cells, with_bass=False, sustain=True)
+
+    held = [n for n in notes if n.pitch == 70]
+    assert len(held) == 1
+    assert held[0].start == pytest.approx(0.0)
+    assert held[0].end == pytest.approx(4.0)
 
 
 def test_relative_keys_do_not_share_absolute_pitches() -> None:

@@ -60,29 +60,39 @@ def cells_to_notes(
     *,
     octave: int = CHORD_OCTAVE,
     with_bass: bool = True,
-    retrigger_each_bar: bool = True,
+    sustain: bool = False,
 ) -> list[MidiNote]:
     """和弦格子 → 音符列表。
 
-    retrigger_each_bar=True 时，每进入新小节都重新触发一次和弦，即使和弦没变。
-    同一个和弦连续四小节会得到四次触发而不是一个长音——导入 DAW 后每小节都能
-    看到、听到一次和弦，这是和弦谱的常规写法。关掉则连成长音符。
+    默认**每个格子都完整重触发**：没有任何音符跨越和弦变化或小节线。
+    一格 = 一次和弦事件，卷帘里每个和弦是一组独立的音块，边界一眼可辨。
 
-    小节内换和弦时，两个和弦共有的绝对音高会保持不断（见 chord_notes 的原位说明）。
+    曾经的做法是让相邻和弦共有的绝对音高连着不断（A# 大三是 70-74-77，
+    D# 大三是 63-67-70，共有 70），看起来像 voice leading。但在卷帘里
+    那条不断的长音块会把两个和弦的边界糊掉，反而更难读——记谱要的是
+    「这里换和弦了」这个信息，不是演奏上的连贯。
+
+    sustain=True 恢复旧行为：音高延续时连成长音符，同一和弦跨多格也合并。
     """
     notes: list[MidiNote] = []
-    pending: dict[int, MidiNote] = {}
-    previous_bar: int | None = None
 
+    if not sustain:
+        for cell in cells:
+            pitches = chord_notes(cell.chord, octave=octave, with_bass=with_bass)
+            for pitch in pitches:
+                velocity = (
+                    BASS_VELOCITY if pitch == min(pitches) and with_bass else DEFAULT_VELOCITY
+                )
+                notes.append(MidiNote(pitch, cell.start, cell.end, velocity))
+        return sorted(notes, key=lambda n: (n.start, n.pitch))
+
+    pending: dict[int, MidiNote] = {}
     for cell in cells:
         pitches = chord_notes(cell.chord, octave=octave, with_bass=with_bass)
         active = set(pitches)
-        new_bar = retrigger_each_bar and previous_bar is not None and cell.bar != previous_bar
-        previous_bar = cell.bar
 
         for pitch, note in list(pending.items()):
-            can_extend = not new_bar and pitch in active and abs(note.end - cell.start) < 1e-6
-            if can_extend:
+            if pitch in active and abs(note.end - cell.start) < 1e-6:
                 pending[pitch] = MidiNote(pitch, note.start, cell.end, note.velocity)
             else:
                 notes.append(note)
