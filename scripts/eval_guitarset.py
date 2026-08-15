@@ -42,7 +42,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import mir_eval  # noqa: E402
 
 from transcribe.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
-from transcribe.chords import assign_chords_to_bars, recognize_chords  # noqa: E402
+from transcribe.chords import (  # noqa: E402
+    assign_chords_to_bars,
+    recognize_chords,
+    rephase_by_chord_changes,
+)
 from transcribe.key import PROFILES, detect_key, mean_chroma  # noqa: E402
 
 DATA_ROOT = Path.home() / "datasets" / "guitarset"
@@ -153,20 +157,33 @@ def evaluate_track(audio_path: Path, ann: dict) -> dict:
     raw_intervals = np.array([[s, e] for s, e, _ in segments])
     raw_labels = [c for _, _, c in segments]
 
+    # 用和弦变化点重选小节线相位，再测一次。必须和修正前对照报告，
+    # 只报修正后的数字看不出这一步到底有没有用、有没有把对的改坏。
+    rephased = rephase_by_chord_changes(beats, segments)
+    row["downbeat_f_rephased"] = float(
+        mir_eval.beat.f_measure(ann["downbeats"], rephased.downbeats)
+    )
+    row["rephased"] = bool(not np.array_equal(rephased.positions, beats.positions))
+
     # 量化到小节之后的版本——这才是工具实际输出的东西。
     # 和原始分段对比，就能看出小节对齐这一步本身损失了多少准确率。
     bar_chords = assign_chords_to_bars(segments, beats.bars)
-    if bar_chords:
-        bar_intervals = np.array([[b.start, b.end] for b in bar_chords])
-        bar_labels = [b.chord for b in bar_chords]
-    else:
-        bar_intervals, bar_labels = raw_intervals, raw_labels
+    rephased_bars = assign_chords_to_bars(segments, rephased.bars)
+
+    def as_arrays(chords):
+        if not chords:
+            return raw_intervals, raw_labels
+        return np.array([[b.start, b.end] for b in chords]), [b.chord for b in chords]
+
+    bar_intervals, bar_labels = as_arrays(bar_chords)
+    rephased_intervals, rephased_labels = as_arrays(rephased_bars)
 
     for ref_kind in ("instructed", "performed"):
         ref_intervals, ref_labels = ann[f"chord_{ref_kind}"]
         for est_kind, (est_intervals, est_labels) in (
             ("raw", (raw_intervals, raw_labels)),
             ("bar", (bar_intervals, bar_labels)),
+            ("rebar", (rephased_intervals, rephased_labels)),
         ):
             scores = mir_eval.chord.evaluate(ref_intervals, ref_labels, est_intervals, est_labels)
             for metric in ("root", "thirds", "majmin"):
@@ -204,6 +221,16 @@ def summarize(rows: list[dict]) -> str:
     lines.append(f"  Cemgil Best Metric Level   {mean('beat_cemgil_best'):.3f}")
     lines.append(f"  小节线 F 值                {mean('downbeat_f'):.3f}")
 
+    # 和弦变化点重定相位的效果。必须报「修好几段 / 弄坏几段」，
+    # 只看平均值会掩盖「改动了很多但净收益接近零」这种情况。
+    changed = [r for r in rows if r["rephased"]]
+    fixed = sum(r["downbeat_f_rephased"] > r["downbeat_f"] + 0.05 for r in rows)
+    broken = sum(r["downbeat_f_rephased"] < r["downbeat_f"] - 0.05 for r in rows)
+    lines.append(
+        f"  小节线 F（和弦重定相位）   {mean('downbeat_f_rephased'):.3f}   "
+        f"改动 {len(changed)}/{len(rows)} 段，修好 {fixed}，弄坏 {broken}"
+    )
+
     # 相位偏移接近 ±0.5 拍 = 整体踩在反拍，拍子跟对了但位置错了
     offsets = [abs(r["beat_phase_offset"]) for r in rows if not np.isnan(r["beat_phase_offset"])]
     offbeat = sum(0.35 < o < 0.65 for o in offsets)
@@ -219,7 +246,11 @@ def summarize(rows: list[dict]) -> str:
     lines.append("\n--- 阶段 3: 和弦 (mir_eval 加权和弦召回率) ---")
     lines.append(f"  {'真值':<12} {'输出':<8} {'root':>8} {'thirds':>8} {'majmin':>8}")
     for ref_kind, ref_name in (("instructed", "指示演奏"), ("performed", "实际演奏")):
-        for est_kind, est_name in (("raw", "原始分段"), ("bar", "量化到小节")):
+        for est_kind, est_name in (
+            ("raw", "原始分段"),
+            ("bar", "量化到小节"),
+            ("rebar", "重定相位后"),
+        ):
             lines.append(
                 f"  {ref_name:<12} {est_name:<8} "
                 f"{mean(f'chord_{ref_kind}_{est_kind}_root'):>8.3f} "

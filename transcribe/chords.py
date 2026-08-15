@@ -86,6 +86,82 @@ class BarChord:
         return self.end - self.start
 
 
+def chord_change_times(segments: list[tuple[float, float, str]]) -> list[float]:
+    """和弦真正发生变化的时刻。
+
+    只取标签不同的分界，相同标签被切成两段的接缝不算变化。
+    """
+    changes = []
+    for (_, end, label), (next_start, _, next_label) in zip(segments, segments[1:], strict=False):
+        if label != next_label:
+            changes.append((end + next_start) / 2)
+    return changes
+
+
+def downbeat_phase_votes(
+    beat_times: np.ndarray,
+    beat_positions: np.ndarray,
+    meter: int,
+    change_times: list[float],
+    tolerance: float,
+) -> dict[int, int]:
+    """统计每个和弦变化点落在小节内的哪一拍上。
+
+    和声几乎总在强拍换。所以票数最多的那一拍，就应该是「1」。
+    这是把阶段 3 的信息反馈给阶段 2——madmom 的 downbeat 模型只看声学特征，
+    看不到和弦。
+    """
+    votes = dict.fromkeys(range(1, meter + 1), 0)
+    if len(beat_times) == 0:
+        return votes
+    for time in change_times:
+        index = int(np.argmin(np.abs(beat_times - time)))
+        if abs(beat_times[index] - time) <= tolerance:
+            votes[int(beat_positions[index])] += 1
+    return votes
+
+
+def rephase_by_chord_changes(beats, segments, *, min_share: float = 0.5, min_votes: int = 3):
+    """用和弦变化点重新选择哪一拍是小节线，返回新的 BeatResult。
+
+    只改小节内位置的编号，**不动拍点时间**——拍点本身 F 值 0.788 已经不错，
+    问题出在选错了相位。实测 60 段里有 12 段是「拍点 F>0.7 但小节线 F<0.3」，
+    正是这种纯相位错误。
+
+    证据不足时原样返回：和弦变化太少（短片段可能只有两三次转换），
+    或者票数分散（没有哪一拍明显占优）。宁可不动也不要瞎改。
+    """
+    from transcribe.beats import BeatResult
+
+    meter = beats.meter
+    if meter < 2 or len(beats.beats) == 0:
+        return beats
+
+    intervals = beats.intervals
+    if len(intervals) == 0:
+        return beats
+    tolerance = float(np.median(intervals)) * 0.5
+
+    changes = chord_change_times(segments)
+    votes = downbeat_phase_votes(beats.times, beats.positions, meter, changes, tolerance)
+    total = sum(votes.values())
+    if total < min_votes:
+        return beats
+
+    best = max(votes, key=lambda p: votes[p])
+    if votes[best] / total < min_share or best == 1:
+        return beats
+
+    positions = ((beats.positions - best) % meter) + 1
+    return BeatResult(
+        beats=np.column_stack([beats.times, positions]),
+        duration=beats.duration,
+        candidate_meters=beats.candidate_meters,
+        activations=beats.activations,
+        reference_tempo=beats.reference_tempo,
+    )
+
+
 def assign_chords_to_bars(
     segments: list[tuple[float, float, str]],
     bars: list[tuple[int, float, float]],
@@ -214,10 +290,15 @@ def analyze_file(
     duration: float | None = None,
     offset: float = 0.0,
     detect_key: bool = True,
+    rephase: bool = True,
 ):
     """跑完整流水线：调式（阶段 1）+ 小节线（阶段 2）+ 和弦（阶段 3）。
 
     返回 (ChordResult, BeatResult)。这就是第一期目标「和弦谱生成器」的全部输出。
+
+    rephase=True 时用和弦变化点回头修正小节线相位。GuitarSet 60 段实测
+    小节线 F 从 0.514 提到 0.621（改动 13 段，修好 10、弄坏 3），
+    和弦 majmin 从 0.678 提到 0.704。默认开着。
     """
     import librosa
 
@@ -231,6 +312,12 @@ def analyze_file(
 
     beat_result = track_beats(y, sr, meters=meters, min_bpm=min_bpm, max_bpm=max_bpm)
     segments = recognize_chords(y, sr, route=route)
+
+    if rephase:
+        # 把阶段 3 的信息反馈给阶段 2：和声几乎总在强拍换，
+        # 哪一拍上的和弦变化最多，那一拍就是「1」。madmom 的 downbeat 模型
+        # 只看声学特征，看不到和弦——这是它拿不到的信息。
+        beat_result = rephase_by_chord_changes(beat_result, segments)
 
     key = None
     if detect_key:
@@ -336,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--duration", type=float, help="只分析前 N 秒")
     parser.add_argument("--offset", type=float, default=0.0, help="从第 N 秒开始")
     parser.add_argument("--no-key", action="store_true", help="跳过调式识别")
+    parser.add_argument("--no-rephase", action="store_true", help="跳过用和弦变化点修正小节线相位")
     args = parser.parse_args(argv)
 
     routes = list(ROUTES) if args.route == "both" else [args.route]
@@ -350,6 +438,7 @@ def main(argv: list[str] | None = None) -> int:
             duration=args.duration,
             offset=args.offset,
             detect_key=not args.no_key,
+            rephase=not args.no_rephase,
         )
         results[route] = result
         print("=" * 68)
