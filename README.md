@@ -83,6 +83,7 @@ chordsheet 的取向是：与其假装准确，不如**让你知道哪些输出�
 判断哪一拍是「1」难，节奏型太均匀反而没有线索指示小节起点。
 
 评测怎么做的、哪些改进被数据否决了，见 [docs/EVALUATION.md](docs/EVALUATION.md)。
+开发过程中的技术决策与踩坑记录见 [docs/NOTES.md](docs/NOTES.md)。
 
 ## 安装
 
