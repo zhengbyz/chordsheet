@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import io
 import shutil
 import tempfile
 import threading
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -216,6 +217,36 @@ async def status(job_id: str) -> JSONResponse:
             "error": job.error,
             "result": job.result,
         }
+    )
+
+
+@app.post("/api/midi")
+async def midi_from_edits(payload: dict) -> Response:
+    """把编辑后的和弦导出成 MIDI。
+
+    编辑状态留在前端，服务端不存——刷新页面就回到识别结果，语义清楚，
+    也不用管过期任务的清理。前端把当前的格子发过来即可。
+    """
+    from chordsheet.chords import ChordCell
+    from chordsheet.midi import cells_to_notes, write_midi
+
+    raw = payload.get("cells") or []
+    if not raw:
+        raise HTTPException(400, "没有可导出的和弦")
+
+    cells = [
+        ChordCell(int(c["bar"]), float(c["start"]), float(c["end"]), str(c["chord"])) for c in raw
+    ]
+    buffer = io.BytesIO()
+    with tempfile.NamedTemporaryFile(suffix=".mid") as tmp:
+        write_midi(cells_to_notes(cells), tmp.name, tempo_bpm=float(payload.get("tempo") or 120))
+        buffer.write(Path(tmp.name).read_bytes())
+
+    name = str(payload.get("filename") or "chords")
+    return Response(
+        buffer.getvalue(),
+        media_type="audio/midi",
+        headers={"Content-Disposition": f'attachment; filename="{name}.mid"'},
     )
 
 

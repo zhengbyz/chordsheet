@@ -73,6 +73,24 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 .strip { position: sticky; top: 0; z-index: 2; height: 26px; }
 .chip { position: absolute; top: 0; height: 26px; display: flex; align-items: center; padding: 0 5px; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; border-right: 1px solid var(--line); background: var(--panel); }
 .chip.nd { color: var(--warn); }
+.chip.sel { background: color-mix(in srgb, var(--accent) 26%, var(--panel)); box-shadow: inset 0 0 0 2px var(--accent); }
+.chip { cursor: pointer; }
+.note.edited { box-shadow: inset 0 0 0 1px rgba(0,0,0,.18), 0 0 0 1px var(--accent); }
+
+/* ---- 编辑面板 ---- */
+#editor { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+#editor.on { display: block; }
+.ed-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.ed-head b { font-size: 17px; }
+.roots { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; max-width: 640px; margin-bottom: 8px; }
+.roots button { padding: 6px 0; font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; cursor: pointer; }
+.roots button.blk { background: color-mix(in srgb, var(--ink) 10%, var(--panel)); }
+.roots button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.acts button { padding: 6px 12px; font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; cursor: pointer; }
+.acts button:hover:not(:disabled) { border-color: var(--accent); }
+.acts button:disabled { opacity: .4; cursor: default; }
+.acts .sep { width: 1px; height: 22px; background: var(--line); }
 .barnum { position: absolute; top: 26px; font-size: 9px; color: var(--muted); padding-left: 3px; z-index: 2; }
 #ph { position: absolute; top: 0; width: 2px; background: var(--accent); z-index: 4; pointer-events: none; }
 .tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
@@ -146,7 +164,26 @@ audio { width: 100%; margin-top: 10px; }
       <div id="roll"><div id="inner">
         <div id="keys"></div><div id="grid"></div><div id="ph"></div>
       </div></div>
-      <div class="note-txt">88 键，音块长度即和弦持续时间。点网格可跳转播放。</div>
+      <div class="note-txt">88 键，音块长度即和弦持续时间。点网格可跳转播放，点顶部和弦条可编辑。</div>
+
+      <div id="editor">
+        <div class="ed-head">
+          <b id="ed-title">—</b><span class="note-txt" id="ed-range" style="margin:0"></span>
+        </div>
+        <div class="roots" id="ed-roots"></div>
+        <div class="acts">
+          <button id="ed-maj">大三和弦</button>
+          <button id="ed-min">小三和弦</button>
+          <button id="ed-none">无和弦</button>
+          <span class="sep"></span>
+          <button id="ed-split">在播放头处拆分</button>
+          <button id="ed-merge">与前一段合并</button>
+          <span class="sep"></span>
+          <button id="ed-undo">撤销</button>
+          <button id="ed-reset">恢复识别结果</button>
+          <span class="note-txt" id="ed-hint" style="margin:0"></span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -336,7 +373,10 @@ function render(d) {
   $("warnings").innerHTML = w.join("<br>");
 
   PPS = Math.max(28, Math.min(140, 900 / Math.max(DATA.duration, 1) * 6));
-  buildRoll(); fitToNotes();
+  Edit.original = JSON.stringify(CELLS);
+  Edit.history = []; Edit.sel = -1;
+  $("ed-undo").disabled = true;
+  buildRoll(); fitToNotes(); Edit.paint();
   requestAnimationFrame(loop);
 }
 
@@ -369,11 +409,12 @@ function buildRoll() {
   for (const b of BARLINES) html += `<div class="gl bar" style="left:${b.start * PPS}px;height:${H + 26}px"></div>`;
   // 顶部和弦条（sticky，横向跟着滚）
   html += `<div class="strip" style="width:${W}px">`;
-  for (const c of CELLS) {
+  CELLS.forEach((c, i) => {
     const w = (c.end - c.start) * PPS;
-    html += `<div class="chip${c.diatonic || c.chord === "N" ? "" : " nd"}" style="left:${c.start * PPS}px;width:${Math.max(w - 1, 2)}px"`
-          + ` title="第 ${c.bar} 小节　${prettyChord(c.chord)}">${w > 30 ? prettyChord(c.chord) : ""}</div>`;
-  }
+    html += `<div class="chip${c.diatonic || c.chord === "N" ? "" : " nd"}" data-c="${i}"`
+          + ` style="left:${c.start * PPS}px;width:${Math.max(w - 1, 2)}px"`
+          + ` title="第 ${c.bar} 小节　${prettyChord(c.chord)}　点击编辑">${w > 30 ? prettyChord(c.chord) : ""}</div>`;
+  });
   html += `</div>`;
   for (const b of BARLINES) html += `<div class="barnum" style="left:${b.start * PPS}px">${b.index}</div>`;
   // 音块
@@ -384,10 +425,12 @@ function buildRoll() {
   g.innerHTML = html;
 
   g.onclick = e => {
+    const chip = e.target.closest(".chip");
+    if (chip) { Edit.select(+chip.dataset.c); return; }   // 点和弦条 = 选中编辑
     const x = e.clientX - g.getBoundingClientRect().left;
-    $("audio").currentTime = Math.max(x / PPS, 0);
+    $("audio").currentTime = Math.max(x / PPS, 0);         // 点网格 = 跳转播放
   };
-  $("roll-info").textContent = `${NOTES.length} 个音块　${(PPS).toFixed(0)} px/秒`;
+  $("roll-info").textContent = `${CELLS.length} 段和弦　${NOTES.length} 个音块　${PPS.toFixed(0)} px/秒`;
 }
 
 function fitToNotes() {
@@ -449,6 +492,180 @@ audio.addEventListener("waiting", () => Synth.stop());   // 缓冲卡顿时先�
 $("zoom-in").onclick = () => { PPS = Math.min(PPS * 1.5, 600); buildRoll(); };
 $("zoom-out").onclick = () => { PPS = Math.max(PPS / 1.5, 8); buildRoll(); };
 $("fit").onclick = fitToNotes;
+
+/* ---------- 编辑 ----------
+   编辑的是**和弦**不是单个音块。音块由和弦推导而来，允许单独拖动音块的话
+   可以造出 C-E-G# 这种不对应任何和弦标签的组合，和弦谱、调内检查、和弦名
+   全部失效。改和弦则一改全改：音块、试听、导出同时更新，数据始终自洽。
+
+   编辑状态只留在前端。刷新页面就回到识别结果，语义清楚，
+   服务端也不用管过期任务的清理。                                          */
+const Edit = {
+  sel: -1, history: [], original: null,
+
+  snapshot() {
+    this.history.push(JSON.stringify(CELLS));
+    if (this.history.length > 100) this.history.shift();
+    $("ed-undo").disabled = false;
+  },
+
+  /* 和弦 → 音高。必须和后端 chordsheet/midi.py 的 chord_notes 一致：
+     一律原位，根音取 60+音级，再加一个低两个八度的低音。 */
+  notesOf(chord) {
+    if (!chord || chord === "N" || !chord.includes(":")) return [];
+    const [root, quality] = chord.split(":");
+    const i = PC.indexOf(root);
+    if (i < 0) return [];
+    const base = 60 + i;
+    const iv = quality === "min" ? [0, 3, 7] : [0, 4, 7];
+    return [base - 24, ...iv.map(v => base + v)];
+  },
+
+  /* 调内判断，和后端 is_diatonic 保持一致 */
+  diatonic(chord) {
+    if (!DATA?.key?.primary || !chord || chord === "N" || !chord.includes(":")) return false;
+    const [root, quality] = chord.split(":");
+    const [tonic, mode] = DATA.key.primary.split(" ");
+    const ri = PC.indexOf(root), ti = PC.indexOf(tonic);
+    if (ri < 0 || ti < 0) return false;
+    const deg = ((ri - ti) % 12 + 12) % 12;
+    const table = mode === "major"
+      ? { 0: ["maj"], 2: ["min"], 4: ["min"], 5: ["maj"], 7: ["maj"], 9: ["min"] }
+      : { 0: ["min"], 3: ["maj"], 5: ["min"], 7: ["min", "maj"], 8: ["maj"], 10: ["maj"] };
+    return (table[deg] || []).includes(quality);
+  },
+
+  /* 从 CELLS 重建音块，规则和后端 cells_to_notes 一致：每格完整重触发 */
+  rebuild() {
+    NOTES = [];
+    for (const c of CELLS) {
+      c.diatonic = this.diatonic(c.chord);
+      const pitches = this.notesOf(c.chord);
+      for (const p of pitches) {
+        NOTES.push({ pitch: p, start: c.start, end: c.end, velocity: p === pitches[0] ? 84 : 72 });
+      }
+    }
+    NOTES.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
+    buildRoll(); this.paint();
+    if (!$("audio").paused) Synth.schedule();
+  },
+
+  select(i) { this.sel = i; this.paint(); },
+
+  paint() {
+    const c = CELLS[this.sel];
+    $("editor").classList.toggle("on", !!c);
+    document.querySelectorAll(".chip").forEach((e, i) => e.classList.toggle("sel", i === this.sel));
+    if (!c) return;
+    $("ed-title").textContent = prettyChord(c.chord);
+    $("ed-range").textContent = `第 ${c.bar} 小节　${c.start.toFixed(2)}–${c.end.toFixed(2)}s`
+      + `　${c.diatonic ? "调内" : (c.chord === "N" ? "" : "调外")}`;
+    const cur = c.chord.includes(":") ? c.chord.split(":")[0] : null;
+    $("ed-roots").innerHTML = PC.map(p =>
+      `<button data-r="${p}" class="${BLACK.includes(PC.indexOf(p)) ? "blk" : ""}${p === cur ? " on" : ""}">${p}</button>`).join("");
+    $("ed-roots").querySelectorAll("button").forEach(b => {
+      b.onclick = () => {
+        const q = CELLS[this.sel].chord.includes(":") ? CELLS[this.sel].chord.split(":")[1] : "maj";
+        this.setChord(`${b.dataset.r}:${q}`);
+      };
+    });
+    const prev = CELLS[this.sel - 1];
+    $("ed-merge").disabled = !prev || prev.bar !== c.bar;
+    $("ed-merge").title = $("ed-merge").disabled ? "跨小节不能合并——格子按小节切分" : "";
+    const t = $("audio").currentTime;
+    $("ed-split").disabled = !(t > c.start + 0.05 && t < c.end - 0.05);
+    $("ed-hint").textContent = $("ed-split").disabled ? "把播放头停在这段中间才能拆分" : "";
+  },
+
+  setChord(chord) {
+    if (this.sel < 0) return;
+    this.snapshot();
+    CELLS[this.sel].chord = chord;
+    this.rebuild();
+  },
+
+  /* 拆分点吸附到最近的拍点——和弦边界必须落在拍上，这是前面定下的规则，
+     手动编辑不能破例，否则又回到「和弦换得不在拍上」。 */
+  split() {
+    const c = CELLS[this.sel];
+    if (!c) return;
+    const t = $("audio").currentTime;
+    const beats = DATA.beats.times.filter(x => x > c.start + 1e-6 && x < c.end - 1e-6);
+    if (!beats.length) { $("ed-hint").textContent = "这段里没有可切分的拍点"; return; }
+    const at = beats.reduce((best, x) => Math.abs(x - t) < Math.abs(best - t) ? x : best, beats[0]);
+
+    this.snapshot();
+    CELLS.splice(this.sel, 1,
+      { ...c, end: at }, { ...c, start: at });
+    this.rebuild();
+    this.select(this.sel);
+  },
+
+  merge() {
+    const i = this.sel, c = CELLS[i], prev = CELLS[i - 1];
+    if (!c || !prev || prev.bar !== c.bar) return;
+    this.snapshot();
+    CELLS.splice(i - 1, 2, { ...prev, end: c.end });
+    this.rebuild();
+    this.select(i - 1);
+  },
+
+  undo() {
+    if (!this.history.length) return;
+    CELLS = JSON.parse(this.history.pop());
+    $("ed-undo").disabled = !this.history.length;
+    this.rebuild();
+    this.select(Math.min(this.sel, CELLS.length - 1));
+  },
+
+  reset() {
+    if (!this.original) return;
+    this.snapshot();
+    CELLS = JSON.parse(this.original);
+    this.rebuild();
+    this.select(-1);
+  },
+};
+
+$("ed-maj").onclick = () => {
+  const c = CELLS[Edit.sel]; if (!c) return;
+  const r = c.chord.includes(":") ? c.chord.split(":")[0] : "C";
+  Edit.setChord(`${r}:maj`);
+};
+$("ed-min").onclick = () => {
+  const c = CELLS[Edit.sel]; if (!c) return;
+  const r = c.chord.includes(":") ? c.chord.split(":")[0] : "C";
+  Edit.setChord(`${r}:min`);
+};
+$("ed-none").onclick = () => Edit.setChord("N");
+$("ed-split").onclick = () => Edit.split();
+$("ed-merge").onclick = () => Edit.merge();
+$("ed-undo").onclick = () => Edit.undo();
+$("ed-reset").onclick = () => Edit.reset();
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); Edit.undo(); }
+  if (e.key === "Escape") Edit.select(-1);
+});
+
+/* 导出时把当前（可能已编辑的）格子发给服务端 */
+$("midi-dl").onclick = async e => {
+  e.preventDefault();
+  const res = await fetch("/api/midi", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cells: CELLS.map(c => ({ bar: c.bar, start: c.start, end: c.end, chord: c.chord })),
+      tempo: DATA.beats.tempo,
+      filename: (DATA.filename || "chords").replace(/\.[^.]+$/, "") + "_chords",
+    }),
+  });
+  if (!res.ok) { alert("导出失败 HTTP " + res.status); return; }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = (DATA.filename || "chords").replace(/\.[^.]+$/, "") + "_chords.mid";
+  a.click(); URL.revokeObjectURL(url);
+};
 </script>
 </body>
 </html>
