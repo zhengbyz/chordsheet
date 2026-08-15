@@ -34,6 +34,9 @@ dev = ["pytest>=8.0", "ruff>=0.16"]
 # 真实标注评测用。指标定义（加权和弦召回率、节拍容差 F 值）都有公认标准，
 # 自己实现容易在细节上偷偷放水，所以用领域标准库。
 eval = ["mir_eval>=0.8"]
+# 本地网页界面。madmom 是编译扩展只能在服务端跑，所以是「本地服务 + 浏览器」
+# 而不是纯前端页面——音频不出本机。
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "python-multipart>=0.0.9"]
 
 [project.urls]
 Homepage = "https://github.com/zhengbyz/chordsheet"
@@ -43,7 +46,10 @@ Issues = "https://github.com/zhengbyz/chordsheet/issues"
 chordsheet = "chordsheet.__main__:main"
 
 [tool.setuptools]
-packages = ["chordsheet"]
+packages = ["chordsheet", "chordsheet.web"]
+
+[tool.setuptools.package-data]
+"chordsheet.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 # 让 tests/ 里能 import chordsheet，不用装包也不用 sys.path 手脚
@@ -58,6 +64,11 @@ target-version = "py312"
 # E/W=风格 F=错误 I=import排序 UP=语法现代化 B=常见bug
 select = ["E", "W", "F", "I", "UP", "B"]
 ignore = ["E501"]  # 行长交给 formatter 处理
+
+[tool.ruff.lint.per-file-ignores]
+# B008 禁止在参数默认值里调用函数，但 `file: UploadFile = File(...)` 正是 FastAPI
+# 声明依赖的标准写法——依赖注入靠的就是这个默认值。这里是误报。
+"chordsheet/web/app.py" = ["B008"]
 
 [tool.ruff.format]
 quote-style = "double"
