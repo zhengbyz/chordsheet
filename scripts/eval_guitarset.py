@@ -41,13 +41,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mir_eval  # noqa: E402
 
-from transcribe.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
-from transcribe.chords import (  # noqa: E402
+from chordsheet.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
+from chordsheet.chords import (  # noqa: E402
     assign_chords_to_bars,
     recognize_chords,
     rephase_by_chord_changes,
 )
-from transcribe.key import PROFILES, detect_key, mean_chroma  # noqa: E402
+from chordsheet.key import PROFILES, detect_key, mean_chroma  # noqa: E402
 
 DATA_ROOT = Path.home() / "datasets" / "guitarset"
 

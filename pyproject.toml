@@ -1,11 +1,28 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "music-transcription"
+name = "chordsheet"
 version = "0.1.0"
-description = "自动音乐转录：调式、和弦、主旋律 → MIDI → 五线谱"
+description = "从音频生成和弦谱：调式、节拍与小节线、按小节的和弦进行"
+readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "ZHENG Boyue" }]
+keywords = ["music", "mir", "chord-recognition", "beat-tracking", "key-detection"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+]
 dependencies = [
-    # madmom 装不了声明式依赖（需要 --no-build-isolation + git main），
-    # 安装步骤见 requirements-stage0.txt
+    # madmom 装不了声明式依赖：它没有 pyproject.toml，setup.py 顶层就 import Cython，
+    # 必须 pip install --no-build-isolation 且用 git main 分支。
+    # 完整安装步骤见 README「安装」一节。
     "numpy>=2.0",
     "scipy>=1.13",
     "mido>=1.2.8",
@@ -13,18 +30,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "ruff>=0.16",
-]
+dev = ["pytest>=8.0", "ruff>=0.16"]
 # 真实标注评测用。指标定义（加权和弦召回率、节拍容差 F 值）都有公认标准，
 # 自己实现容易在细节上偷偷放水，所以用领域标准库。
-eval = [
-    "mir_eval>=0.8",
-]
+eval = ["mir_eval>=0.8"]
+
+[project.urls]
+Homepage = "https://github.com/zhengbyz/chordsheet"
+Issues = "https://github.com/zhengbyz/chordsheet/issues"
+
+[project.scripts]
+chordsheet = "chordsheet.__main__:main"
+
+[tool.setuptools]
+packages = ["chordsheet"]
 
 [tool.pytest.ini_options]
-# 让 tests/ 里能 import transcribe，不用装包也不用 sys.path 手脚
+# 让 tests/ 里能 import chordsheet，不用装包也不用 sys.path 手脚
 pythonpath = ["."]
 testpaths = ["tests"]
 

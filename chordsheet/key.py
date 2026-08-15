@@ -6,8 +6,8 @@
   3. 相关系数最高的就是答案
 
 用法：
-    .venv/bin/python -m transcribe.key 素材.mp3
-    .venv/bin/python -m transcribe.key 素材.mp3 --profile both --top 8
+    .venv/bin/python -m chordsheet.key 素材.mp3
+    .venv/bin/python -m chordsheet.key 素材.mp3 --profile both --top 8
 """
 
 from __future__ import annotations

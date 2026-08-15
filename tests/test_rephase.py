@@ -7,8 +7,8 @@
 import numpy as np
 import pytest
 
-from transcribe.beats import BeatResult
-from transcribe.chords import (
+from chordsheet.beats import BeatResult
+from chordsheet.chords import (
     chord_change_times,
     downbeat_phase_votes,
     rephase_by_chord_changes,

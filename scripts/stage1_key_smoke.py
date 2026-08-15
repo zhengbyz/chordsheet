@@ -20,7 +20,7 @@ import numpy as np
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from transcribe.key import PITCH_CLASSES, PROFILES, detect_key, mean_chroma  # noqa: E402
+from chordsheet.key import PITCH_CLASSES, PROFILES, detect_key, mean_chroma  # noqa: E402
 
 SAMPLE_RATE = 22050
 CHORD_DUR = 1.2

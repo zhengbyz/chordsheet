@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-from transcribe.key import KEY_SIGNATURES, PITCH_CLASSES, PROFILES, KeyResult, detect_key
+from chordsheet.key import KEY_SIGNATURES, PITCH_CLASSES, PROFILES, KeyResult, detect_key
 
 
 def _result(key: str) -> KeyResult:

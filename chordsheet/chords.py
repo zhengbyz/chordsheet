@@ -15,8 +15,8 @@ madmom 提供两条方法完全不同的路线，可以互相验证：
 爵士是毁灭性的。这是模型本身的限制，换不了。
 
 用法：
-    .venv/bin/python -m transcribe.chords 素材.mp3
-    .venv/bin/python -m transcribe.chords 素材.mp3 --route deepchroma --min-bpm 120
+    .venv/bin/python -m chordsheet.chords 素材.mp3
+    .venv/bin/python -m chordsheet.chords 素材.mp3 --route deepchroma --min-bpm 120
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from transcribe.key import PITCH_CLASSES
+from chordsheet.key import PITCH_CLASSES
 
 ROUTES = ("cnn", "deepchroma")
 NO_CHORD = "N"
@@ -131,7 +131,7 @@ def rephase_by_chord_changes(beats, segments, *, min_share: float = 0.5, min_vot
     证据不足时原样返回：和弦变化太少（短片段可能只有两三次转换），
     或者票数分散（没有哪一拍明显占优）。宁可不动也不要瞎改。
     """
-    from transcribe.beats import BeatResult
+    from chordsheet.beats import BeatResult
 
     meter = beats.meter
     if meter < 2 or len(beats.beats) == 0:
@@ -261,7 +261,7 @@ def recognize_chords(
         DeepChromaChordRecognitionProcessor,
     )
 
-    from transcribe.beats import MADMOM_SAMPLE_RATE
+    from chordsheet.beats import MADMOM_SAMPLE_RATE
 
     if y.ndim != 1:
         raise ValueError(f"需要单声道一维数组，实际 {y.shape}")
@@ -302,9 +302,9 @@ def analyze_file(
     """
     import librosa
 
-    from transcribe.beats import MADMOM_SAMPLE_RATE, track_beats
-    from transcribe.key import detect_key as detect_key_fn
-    from transcribe.key import mean_chroma
+    from chordsheet.beats import MADMOM_SAMPLE_RATE, track_beats
+    from chordsheet.key import detect_key as detect_key_fn
+    from chordsheet.key import mean_chroma
 
     y, sr = librosa.load(path, sr=MADMOM_SAMPLE_RATE, mono=True, duration=duration, offset=offset)
     if len(y) == 0:

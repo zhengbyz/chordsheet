@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-from transcribe.beats import BeatResult
+from chordsheet.beats import BeatResult
 
 
 def make_beats(bpm: float, meter: int, bars: int, start: float = 0.0) -> np.ndarray:

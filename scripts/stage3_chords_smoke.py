@@ -20,13 +20,13 @@ import numpy as np
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from transcribe.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
-from transcribe.chords import (  # noqa: E402
+from chordsheet.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
+from chordsheet.chords import (  # noqa: E402
     assign_chords_to_bars,
     is_diatonic,
     recognize_chords,
 )
-from transcribe.key import PITCH_CLASSES  # noqa: E402
+from chordsheet.key import PITCH_CLASSES  # noqa: E402
 
 SR = MADMOM_SAMPLE_RATE
 BPM = 100

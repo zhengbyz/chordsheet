@@ -20,7 +20,7 @@ import numpy as np
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from transcribe.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
+from chordsheet.beats import MADMOM_SAMPLE_RATE, track_beats  # noqa: E402
 
 SR = MADMOM_SAMPLE_RATE
 BARS = 12

@@ -10,8 +10,8 @@
 单靠 RNN 会给出局部合理但全局矛盾的结果；单靠先验无法处理真实音乐的弹性。
 
 用法：
-    .venv/bin/python -m transcribe.beats 素材.mp3
-    .venv/bin/python -m transcribe.beats 素材.mp3 --meter 3 4 --bars 16
+    .venv/bin/python -m chordsheet.beats 素材.mp3
+    .venv/bin/python -m chordsheet.beats 素材.mp3 --meter 3 4 --bars 16
 """
 
 from __future__ import annotations

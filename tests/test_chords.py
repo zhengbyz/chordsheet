@@ -6,7 +6,7 @@
 
 import pytest
 
-from transcribe.chords import (
+from chordsheet.chords import (
     NO_CHORD,
     BarChord,
     ChordResult,
@@ -144,7 +144,7 @@ def test_diatonic_triads_of_a_minor(label: str) -> None:
 
 def test_transposition_invariance_of_diatonic_check() -> None:
     """把调和和弦一起移调，调内判断结果必须不变。"""
-    from transcribe.key import PITCH_CLASSES
+    from chordsheet.key import PITCH_CLASSES
 
     for shift in range(12):
         for degree, quality in [(0, "maj"), (2, "min"), (5, "maj"), (7, "maj"), (9, "min")]:
