@@ -57,6 +57,7 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
             NO_CHORD,
             ChordResult,
             assign_chords_to_bars,
+            fill_no_chord_cells,
             is_diatonic,
             recognize_chords,
             rephase_by_chord_changes,
@@ -94,6 +95,9 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
         # 和弦边界吸附到拍点网格。madmom 的分段是 10fps 时间轴的产物，
         # 边界常落在拍与拍之间，看谱时就是「和弦换得不在拍上」。
         cells = snap_chords_to_beats(segments, beats.times, beats.full_bars, duration=duration)
+        # CRF 把握不大时会输出 N，但「模型不确定」和「这里没声音」是两回事。
+        # 有声音的 N 补一个最接近的三和弦，真正的空拍留空。
+        cells = fill_no_chord_cells(cells, y, sr)
         job.cells = cells
         job.tempo = beats.tempo
 

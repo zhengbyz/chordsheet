@@ -208,6 +208,89 @@ def snap_chords_to_beats(
     return cells
 
 
+def best_triad(chroma: np.ndarray) -> str | None:
+    """12 维 chroma 最像哪个大/小三和弦。无效输入返回 None。
+
+    和阶段 1 的调式识别同一个套路：拿 24 个模板（12 大三 + 12 小三）做皮尔逊相关，
+    取最高分。这里的模板是二值的——三和弦只有「哪三个音在」这一个信息。
+
+    用相关系数而非直接取三个音的能量和，是为了同时惩罚**不该响的音**：
+    C-E-G 全响但 D 也很响，那更可能是别的和弦。
+    """
+    chroma = np.asarray(chroma, dtype=float)
+    if chroma.shape != (12,) or not np.isfinite(chroma).all() or np.ptp(chroma) == 0:
+        return None
+
+    best, best_score = None, -np.inf
+    for root in range(12):
+        for quality, intervals in (("maj", (0, 4, 7)), ("min", (0, 3, 7))):
+            template = np.zeros(12)
+            template[[(root + i) % 12 for i in intervals]] = 1.0
+            score = float(np.corrcoef(chroma, template)[0, 1])
+            if score > best_score:
+                best, best_score = f"{PITCH_CLASSES[root]}:{quality}", score
+    return best
+
+
+def fill_no_chord_cells(
+    cells: list[ChordCell],
+    y: np.ndarray,
+    sr: int,
+    *,
+    silence_db: float = -45.0,
+    hop_length: int = 2048,
+) -> list[ChordCell]:
+    """给识别不出和弦的格子补一个最接近的和弦；真正的空拍保持无和弦。
+
+    madmom 的 CRF 在把握不大时会输出 N。但「模型不确定」和「这里没有声音」是
+    两回事——前者仍然有和声内容，只是不够典型；后者才该留空。
+
+    做法：对每个 N 格子先看能量，低于 `silence_db`（相对全曲峰值）就认定是空拍、
+    保持 N；否则算这段的 chroma，用二值三和弦模板匹配出最接近的一个。
+
+    补完后同小节内相邻同名的格子会被合并，避免补出一串重复。
+    """
+    import librosa
+
+    if not cells or len(y) == 0:
+        return list(cells)
+
+    blanks = [i for i, cell in enumerate(cells) if cell.chord == NO_CHORD]
+    if not blanks:
+        return list(cells)
+
+    # 整轨算一次 chroma 再按时间切片，比每个格子单独算快得多
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length)
+    frame_times = librosa.frames_to_time(np.arange(chroma.shape[1]), sr=sr, hop_length=hop_length)
+    peak = float(np.max(np.abs(y))) or 1.0
+
+    filled = list(cells)
+    for i in blanks:
+        cell = cells[i]
+        lo, hi = int(cell.start * sr), min(int(cell.end * sr), len(y))
+        if hi <= lo:
+            continue
+        rms = float(np.sqrt(np.mean(y[lo:hi] ** 2)))
+        if 20 * np.log10(max(rms, 1e-12) / peak) < silence_db:
+            continue  # 真的是空拍，留 N
+
+        mask = (frame_times >= cell.start) & (frame_times < cell.end)
+        if not mask.any():
+            continue
+        guess = best_triad(chroma[:, mask].mean(axis=1))
+        if guess is not None:
+            filled[i] = ChordCell(cell.bar, cell.start, cell.end, guess)
+
+    # 补完可能产生相邻同名格子，合并掉
+    merged: list[ChordCell] = []
+    for cell in filled:
+        if merged and merged[-1].bar == cell.bar and merged[-1].chord == cell.chord:
+            merged[-1] = ChordCell(cell.bar, merged[-1].start, cell.end, cell.chord)
+        else:
+            merged.append(cell)
+    return merged
+
+
 @dataclass(frozen=True)
 class BarChord:
     """一个小节配一个和弦。"""

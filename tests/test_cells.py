@@ -155,34 +155,29 @@ def test_no_chord_yields_no_notes() -> None:
     assert chord_notes("乱写") == []
 
 
-def test_repeated_chord_is_merged_into_one_long_note() -> None:
-    """同一和弦持续多个小节应连成长音符，而不是每小节重新触发。"""
+def test_repeated_chord_retriggers_at_each_bar() -> None:
+    """同一和弦持续多个小节时，每小节都重新触发一次。
+
+    导入 DAW 后每小节都能看到、听到一次和弦，这是和弦谱的常规写法。
+    连成一个长音的旧行为见 retrigger_each_bar=False。
+    """
     cells = [ChordCell(i + 1, i * 2.0, (i + 1) * 2.0, "C:maj") for i in range(3)]
-    notes = cells_to_notes(cells, with_bass=False)
 
-    assert len(notes) == 3  # 三个音，不是九个
-    assert all(n.start == pytest.approx(0.0) and n.end == pytest.approx(6.0) for n in notes)
+    assert len(cells_to_notes(cells, with_bass=False)) == 9  # 3 小节 × 3 个音
+    assert len(cells_to_notes(cells, with_bass=False, retrigger_each_bar=False)) == 3
 
 
-def test_chord_change_retriggers_new_notes() -> None:
-    """换和弦时只有新音重新触发，共有的绝对音高保持不断。
+def test_chord_change_within_a_bar_only_retriggers_new_notes() -> None:
+    """小节内换和弦时只有新音重新触发，共有的绝对音高保持不断。
 
     原位记法下 C=60,64,67 而 G=67,71,74，两者共有 67，所以 2.0 秒处只新起 71 和 74。
+    跨小节的情况见 test_fill.py 的重触发用例。
     """
-    cells = [ChordCell(1, 0.0, 2.0, "C:maj"), ChordCell(2, 2.0, 4.0, "G:maj")]
+    cells = [ChordCell(1, 0.0, 2.0, "C:maj"), ChordCell(1, 2.0, 4.0, "G:maj")]
     notes = cells_to_notes(cells, with_bass=False)
 
     assert {n.pitch for n in notes if n.start == pytest.approx(0.0)} == {60, 64, 67}
     assert {n.pitch for n in notes if n.start == pytest.approx(2.0)} == {71, 74}
-
-
-def test_common_absolute_pitch_is_held_across_chord_change() -> None:
-    """C 与 G 共有绝对音高 67，它应该连成一个长音符而不是断开重弹。"""
-    cells = [ChordCell(1, 0.0, 2.0, "C:maj"), ChordCell(2, 2.0, 4.0, "G:maj")]
-    notes = cells_to_notes(cells, with_bass=False)
-
-    held = [n for n in notes if n.start == pytest.approx(0.0) and n.end == pytest.approx(4.0)]
-    assert [n.pitch for n in held] == [67]
 
 
 def test_relative_keys_do_not_share_absolute_pitches() -> None:

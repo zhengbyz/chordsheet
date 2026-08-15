@@ -55,22 +55,34 @@ def chord_notes(label: str, *, octave: int = CHORD_OCTAVE, with_bass: bool = Tru
     return pitches
 
 
-def cells_to_notes(cells, *, octave: int = CHORD_OCTAVE, with_bass: bool = True) -> list[MidiNote]:
+def cells_to_notes(
+    cells,
+    *,
+    octave: int = CHORD_OCTAVE,
+    with_bass: bool = True,
+    retrigger_each_bar: bool = True,
+) -> list[MidiNote]:
     """和弦格子 → 音符列表。
 
-    相邻同名的格子会连成一个长音符，而不是每小节重新触发一次——
-    否则同一个和弦持续四小节会被切成四段，卷帘里看着很碎。
+    retrigger_each_bar=True 时，每进入新小节都重新触发一次和弦，即使和弦没变。
+    同一个和弦连续四小节会得到四次触发而不是一个长音——导入 DAW 后每小节都能
+    看到、听到一次和弦，这是和弦谱的常规写法。关掉则连成长音符。
+
+    小节内换和弦时，两个和弦共有的绝对音高会保持不断（见 chord_notes 的原位说明）。
     """
     notes: list[MidiNote] = []
     pending: dict[int, MidiNote] = {}
+    previous_bar: int | None = None
 
     for cell in cells:
         pitches = chord_notes(cell.chord, octave=octave, with_bass=with_bass)
         active = set(pitches)
+        new_bar = retrigger_each_bar and previous_bar is not None and cell.bar != previous_bar
+        previous_bar = cell.bar
 
         for pitch, note in list(pending.items()):
-            if pitch in active and abs(note.end - cell.start) < 1e-6:
-                # 延长已有音符
+            can_extend = not new_bar and pitch in active and abs(note.end - cell.start) < 1e-6
+            if can_extend:
                 pending[pitch] = MidiNote(pitch, note.start, cell.end, note.velocity)
             else:
                 notes.append(note)
