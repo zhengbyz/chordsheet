@@ -74,3 +74,14 @@ charset-normalizer==3.5.0
 idna==3.18
 urllib3==2.7.0
 typing_extensions==4.16.0
+
+# --- 真实标注评测（可选，scripts/eval_guitarset.py 用）---
+#
+# GuitarSet 数据集（CC-BY-4.0，音频和标注都免费）：
+#   mkdir -p ~/datasets/guitarset && cd ~/datasets/guitarset
+#   curl -L -o annotation.zip "https://zenodo.org/records/3371780/files/annotation.zip?download=1"
+#   curl -L -o audio_mono-mic.zip "https://zenodo.org/records/3371780/files/audio_mono-mic.zip?download=1"
+#   unzip -q annotation.zip -d annotation && unzip -q audio_mono-mic.zip
+#
+# Zenodo 在欧洲，走不了清华镜像，657 MB 的音频包约 300 KB/s，要等 20-30 分钟。
+mir_eval==0.8.2

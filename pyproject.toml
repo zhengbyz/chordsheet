@@ -17,6 +17,11 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.16",
 ]
+# 真实标注评测用。指标定义（加权和弦召回率、节拍容差 F 值）都有公认标准，
+# 自己实现容易在细节上偷偷放水，所以用领域标准库。
+eval = [
+    "mir_eval>=0.8",
+]
 
 [tool.pytest.ini_options]
 # 让 tests/ 里能 import transcribe，不用装包也不用 sys.path 手脚

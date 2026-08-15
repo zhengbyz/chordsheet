@@ -236,7 +236,12 @@ def analyze_file(
     if detect_key:
         # 阶段 1 默认开 HPSS，但实测在独奏钢琴上占 91% 时间且几乎无收益。
         # 这里已经为了 madmom 用 44100 加载了，直接复用不再重采样。
-        key = detect_key_fn(mean_chroma(y, sr, harmonic=False), profile="temperley").key
+        #
+        # 用 krumhansl 而非 temperley：阶段 1 曾根据合成音频的领先幅度认为
+        # temperley 更稳，但 GuitarSet 真实标注上 60 段的结果正好相反——
+        # krumhansl 加权分 0.672 / 全错 10 段，temperley 0.570 / 全错 22 段。
+        # 领先幅度大只说明它对自己的答案更笃定，不代表答案更对。
+        key = detect_key_fn(mean_chroma(y, sr, harmonic=False), profile="krumhansl").key
 
     return (
         ChordResult(
