@@ -144,6 +144,70 @@ def split_bars_by_chords(
     return cells
 
 
+def snap_chords_to_beats(
+    segments: list[tuple[float, float, str]],
+    beat_times,
+    bars: list[tuple[int, float, float]],
+    *,
+    duration: float | None = None,
+) -> list[ChordCell]:
+    """把和弦边界吸附到拍点网格，每段和弦必然是整数个拍。
+
+    madmom 的和弦分段是 10fps 的时间轴产物，**和拍子毫无关系**，边界经常落在
+    拍与拍之间——看谱时就是「和弦换得不在拍上」。而真实音乐里和声几乎总在拍上换。
+
+    做法：先让每一拍归属一个和弦（按重叠时长投票），再把相邻同名的拍合并。
+    于是每段和弦的长度自然是 1 拍、2 拍、3 拍……而不是 1.37 秒这种。
+
+    合并只在小节内进行：cell 带小节号，跨小节的同名和弦会被切成两段，
+    这也符合和弦谱的写法（同一和弦跨小节时每小节重写或用延续记号）。
+
+    第一个拍点之前的那段没有拍可依附，单独成格——如实反映「这里没有拍」，
+    而不是硬凑进第一拍里。
+    """
+    times = [float(t) for t in beat_times]
+    if not times or not bars:
+        return split_bars_by_chords(segments, bars)
+
+    end = duration if duration is not None else max(bars[-1][2], times[-1])
+    # 末拍之后按中位拍长补一格，否则最后一拍到曲末的内容会丢
+    if len(times) > 1:
+        step = float(np.median(np.diff(times)))
+    else:
+        step = max(end - times[0], 0.1)
+    edges = [*times, min(times[-1] + step, end)] if times[-1] < end else list(times)
+    if edges[0] > 1e-6:
+        edges.insert(0, 0.0)
+
+    def bar_of(t: float) -> int:
+        for index, start, stop in bars:
+            if start - 1e-9 <= t < stop:
+                return index
+        return bars[-1][0]
+
+    def chord_at(start: float, stop: float) -> str:
+        totals: dict[str, float] = {}
+        for seg_start, seg_stop, label in segments:
+            overlap = min(stop, seg_stop) - max(start, seg_start)
+            if overlap > 0:
+                totals[label] = totals.get(label, 0.0) + overlap
+        return max(totals, key=lambda k: totals[k]) if totals else NO_CHORD
+
+    cells: list[ChordCell] = []
+    for start, stop in zip(edges[:-1], edges[1:], strict=True):
+        if stop - start <= 1e-9:
+            continue
+        bar = bar_of(start)
+        label = chord_at(start, stop)
+        # 同小节内相邻同名的拍合并成一段
+        if cells and cells[-1].bar == bar and cells[-1].chord == label:
+            previous = cells[-1]
+            cells[-1] = ChordCell(bar, previous.start, stop, label)
+        else:
+            cells.append(ChordCell(bar, start, stop, label))
+    return cells
+
+
 @dataclass(frozen=True)
 class BarChord:
     """一个小节配一个和弦。"""

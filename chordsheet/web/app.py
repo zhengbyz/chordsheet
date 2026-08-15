@@ -60,7 +60,7 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
             is_diatonic,
             recognize_chords,
             rephase_by_chord_changes,
-            split_bars_by_chords,
+            snap_chords_to_beats,
         )
         from chordsheet.key import detect_key, mean_chroma
         from chordsheet.midi import chord_notes
@@ -90,7 +90,10 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
         )
         # 界面用 full_bars：从第 0 秒起、一秒不漏。bars 从第一条小节线开始，
         # 音乐上更正确，但界面上开头几秒凭空消失是明显缺陷。
-        cells = split_bars_by_chords(segments, beats.full_bars)
+        #
+        # 和弦边界吸附到拍点网格。madmom 的分段是 10fps 时间轴的产物，
+        # 边界常落在拍与拍之间，看谱时就是「和弦换得不在拍上」。
+        cells = snap_chords_to_beats(segments, beats.times, beats.full_bars, duration=duration)
         job.cells = cells
         job.tempo = beats.tempo
 
