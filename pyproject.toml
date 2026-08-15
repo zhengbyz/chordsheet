@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=2.0",
     "scipy>=1.13",
     "mido>=1.2.8",
+    "librosa>=1.0",
 ]
 
 [project.optional-dependencies]
