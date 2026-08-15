@@ -114,22 +114,40 @@ class BeatResult:
             return "相差三比二，可能是附点/三连音的解读差异"
         return "两者不一致，速度不可信"
 
+    # 末尾残片的判定阈值：短于中位小节长度的这个比例就不算小节。
+    FRAGMENT_RATIO = 0.25
+
     @property
     def bars(self) -> list[tuple[int, float, float]]:
         """小节列表 [(序号, 起点, 终点)]，序号从 1 开始。
 
         这是阶段 3「小节 → 和弦」直接要用的东西。
-        最后一小节用音频结尾收口，可能不完整。
+
+        末尾残片会被丢掉：最后一条小节线若落在音频结束前一丁点，会切出一个
+        零点几秒的空壳，下游照样给它配个和弦、算个 100% 纯度，纯属噪声。
+        丢掉多少秒可以从 `dropped_tail` 查到，不是静默行为。
         """
         marks = self.downbeats
         if len(marks) == 0:
             return []
-        # N 条小节线切出 N 个小节：前 N-1 个由相邻小节线界定，最后一个到音频结尾。
         edges = [*marks.tolist(), max(self.duration, float(marks[-1]))]
-        return [
+        candidates = [
             (i + 1, start, end)
             for i, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True))
         ]
+        if len(candidates) > 1:
+            lengths = [end - start for _, start, end in candidates]
+            if lengths[-1] < np.median(lengths[:-1]) * self.FRAGMENT_RATIO:
+                return candidates[:-1]
+        return candidates
+
+    @property
+    def dropped_tail(self) -> float:
+        """末尾被判为残片、未纳入任何小节的秒数。"""
+        kept = self.bars
+        if not kept:
+            return self.duration
+        return max(0.0, self.duration - kept[-1][2])
 
     @property
     def anacrusis_beats(self) -> int:
@@ -267,6 +285,8 @@ def format_report(result: BeatResult, max_bars: int = 12) -> str:
             f"弱起: 开头 {result.anacrusis_beats} 拍（{result.uncovered_head:.3f}s）"
             f"在第一条小节线之前，不属于任何编号小节"
         )
+    if result.dropped_tail > 0.01:
+        lines.append(f"末尾残片: {result.dropped_tail:.3f}s 太短，未计入小节")
 
     bad = result.incomplete_bars
     if bad:
