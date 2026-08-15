@@ -424,11 +424,15 @@ function buildRoll() {
   });
   g.innerHTML = html;
 
+  // 整个网格都是编辑面：点哪里都选中那一刻的和弦。
+  // 只让 26 像素高的和弦条可点太隐蔽了——想改和弦的人会自然去点音块。
   g.onclick = e => {
-    const chip = e.target.closest(".chip");
-    if (chip) { Edit.select(+chip.dataset.c); return; }   // 点和弦条 = 选中编辑
-    const x = e.clientX - g.getBoundingClientRect().left;
-    $("audio").currentTime = Math.max(x / PPS, 0);         // 点网格 = 跳转播放
+    const rect = g.getBoundingClientRect();
+    const t = Math.max((e.clientX - rect.left) / PPS, 0);
+    const i = CELLS.findIndex(c => t >= c.start && t < c.end);
+    if (i >= 0) Edit.select(i);
+    // 和弦条下方才跳转播放；点和弦条只选中，免得选个和弦就把播放位置带跑
+    if (e.clientY - rect.top > 26) $("audio").currentTime = t;
   };
   $("roll-info").textContent = `${CELLS.length} 段和弦　${NOTES.length} 个音块　${PPS.toFixed(0)} px/秒`;
 }
@@ -554,9 +558,17 @@ const Edit = {
 
   paint() {
     const c = CELLS[this.sel];
-    $("editor").classList.toggle("on", !!c);
+    $("editor").classList.add("on");   // 面板常驻，否则用户不知道有编辑功能
     document.querySelectorAll(".chip").forEach((e, i) => e.classList.toggle("sel", i === this.sel));
-    if (!c) return;
+    if (!c) {
+      $("ed-title").textContent = "未选中";
+      $("ed-range").textContent = "在上方卷帘里点任意位置，选中那一刻的和弦";
+      $("ed-roots").innerHTML = "";
+      ["ed-maj", "ed-min", "ed-none", "ed-split", "ed-merge"].forEach(id => { $(id).disabled = true; });
+      $("ed-hint").textContent = "";
+      return;
+    }
+    ["ed-maj", "ed-min", "ed-none"].forEach(id => { $(id).disabled = false; });
     $("ed-title").textContent = prettyChord(c.chord);
     $("ed-range").textContent = `第 ${c.bar} 小节　${c.start.toFixed(2)}–${c.end.toFixed(2)}s`
       + `　${c.diatonic ? "调内" : (c.chord === "N" ? "" : "调外")}`;

@@ -276,7 +276,23 @@ async def audio(job_id: str) -> FileResponse:
     return FileResponse(job.audio_path)
 
 
-app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+class NoCacheStatic(StaticFiles):
+    """禁用浏览器缓存。
+
+    界面是随开发迭代改的，浏览器缓存住旧的 HTML/JS 会让人以为「功能没生效」，
+    而实际上跑的是旧代码。本地工具没有带宽压力，直接每次都取新的。
+    """
+
+    def is_not_modified(self, *args, **kwargs) -> bool:  # noqa: ARG002
+        return False
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+
+
+app.mount("/", NoCacheStatic(directory=STATIC_DIR, html=True), name="static")
 
 
 def _is_wsl() -> bool:
