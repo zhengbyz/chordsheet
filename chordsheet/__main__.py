@@ -73,7 +73,12 @@ def _serve(argv: list[str]) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="chordsheet serve", description="启动本地网页界面")
-    parser.add_argument("--host", default="127.0.0.1", help="监听地址，默认只允许本机访问")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",  # noqa: S104
+        help="监听地址。默认 0.0.0.0，因为 WSL 下浏览器在 Windows 侧、"
+        "绑回环地址访问不到。要限制只允许本机访问传 127.0.0.1",
+    )
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     args = parser.parse_args(argv)

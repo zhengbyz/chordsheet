@@ -142,6 +142,31 @@ class BeatResult:
         return candidates
 
     @property
+    def full_bars(self) -> list[tuple[int, float, float]]:
+        """覆盖整段音频的小节列表，从第 0 秒开始，一秒不漏。
+
+        和 `bars` 的区别只在两头：
+          - 开头的弱起补成第 0 小节（`bars` 从第一条小节线才开始）
+          - 末尾残片保留（`bars` 会丢掉太短的）
+
+        `bars` 在音乐上更正确——小节本来就从强拍起算，弱起不属于任何编号小节，
+        评测数字也建立在它上面。但界面上「开头几秒凭空消失」是明显的缺陷，
+        所以展示用这个，两者并存而不是改掉 `bars` 的语义。
+        """
+        marks = self.downbeats
+        if len(marks) == 0:
+            return [(0, 0.0, self.duration)] if self.duration > 0 else []
+
+        edges = [*marks.tolist(), max(self.duration, float(marks[-1]))]
+        result = [
+            (i + 1, start, end)
+            for i, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True))
+        ]
+        if marks[0] > 1e-6:
+            result.insert(0, (0, 0.0, float(marks[0])))
+        return result
+
+    @property
     def dropped_tail(self) -> float:
         """末尾被判为残片、未纳入任何小节的秒数。"""
         kept = self.bars

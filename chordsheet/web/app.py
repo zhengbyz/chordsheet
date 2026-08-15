@@ -38,6 +38,9 @@ class Job:
     done: bool = False
     error: str | None = None
     result: dict[str, Any] | None = field(default=None, repr=False)
+    # 供 MIDI 导出用，不进 JSON
+    cells: list = field(default_factory=list, repr=False)
+    tempo: float = 120.0
 
 
 JOBS: dict[str, Job] = {}
@@ -57,8 +60,10 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
             is_diatonic,
             recognize_chords,
             rephase_by_chord_changes,
+            split_bars_by_chords,
         )
         from chordsheet.key import detect_key, mean_chroma
+        from chordsheet.midi import chord_notes
 
         job.stage, job.progress = "加载音频", 0.05
         y, sr = librosa.load(str(job.audio_path), sr=MADMOM_SAMPLE_RATE, mono=True)
@@ -83,6 +88,11 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
         chords = ChordResult(
             segments=segments, bar_chords=bar_chords, route="cnn", key=key_result.key
         )
+        # 界面用 full_bars：从第 0 秒起、一秒不漏。bars 从第一条小节线开始，
+        # 音乐上更正确，但界面上开头几秒凭空消失是明显缺陷。
+        cells = split_bars_by_chords(segments, beats.full_bars)
+        job.cells = cells
+        job.tempo = beats.tempo
 
         job.result = {
             "filename": job.filename,
@@ -127,7 +137,23 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
                     for bar in bar_chords
                 ],
                 "segments": [{"start": s, "end": e, "chord": c} for s, e, c in segments],
+                # 小节内细分。实测 45 个小节里 35 个内部其实有和弦变化，
+                # 只给 bars 会把这些全抹平。
+                "cells": [
+                    {
+                        "bar": cell.bar,
+                        "start": cell.start,
+                        "end": cell.end,
+                        "chord": cell.chord,
+                        "notes": chord_notes(cell.chord),
+                        "diatonic": cell.chord != NO_CHORD
+                        and is_diatonic(cell.chord, key_result.key),
+                    }
+                    for cell in cells
+                ],
+                "bar_lines": [{"index": i, "start": s, "end": e} for i, s, e in beats.full_bars],
             },
+            "midi_url": f"/api/midi/{job.id}",
         }
         job.stage, job.progress, job.done = "完成", 1.0, True
     except Exception as exc:  # noqa: BLE001 - 任何失败都要如实回报给前端
@@ -181,6 +207,24 @@ async def status(job_id: str) -> JSONResponse:
     )
 
 
+@app.get("/api/midi/{job_id}")
+async def midi(job_id: str) -> FileResponse:
+    """导出和弦 MIDI。
+
+    导出的是和弦构成音，不是歌里实际弹的音符——本项目做的是和弦识别。
+    """
+    from chordsheet.midi import export_chords
+
+    job = JOBS.get(job_id)
+    if job is None or not job.cells:
+        raise HTTPException(404, "结果不存在或还没分析完")
+
+    path = UPLOAD_DIR / f"{job_id}.mid"
+    export_chords(job.cells, path, tempo_bpm=job.tempo)
+    stem = Path(job.filename).stem or "chords"
+    return FileResponse(path, media_type="audio/midi", filename=f"{stem}_chords.mid")
+
+
 @app.get("/api/audio/{job_id}")
 async def audio(job_id: str) -> FileResponse:
     job = JOBS.get(job_id)
@@ -192,17 +236,63 @@ async def audio(job_id: str) -> FileResponse:
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True) -> int:
-    """启动本地服务。"""
+def _is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
+
+
+def _open_browser(url: str) -> None:
+    """打开浏览器。WSL 需要特殊处理。
+
+    WSL 里通常没有 xdg-open / wslview，Python 的 webbrowser.open 找不到浏览器会
+    **静默失败**——功能等于没有，还不报错。所以在 WSL 下改成调 Windows 侧的
+    cmd.exe 打开宿主浏览器，并且无论成败都把网址打印出来让用户能手动复制。
+    """
+    if _is_wsl():
+        import subprocess
+
+        for cmd in (["wslview", url], ["cmd.exe", "/c", "start", "", url]):
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, timeout=10)
+                return
+            except (OSError, subprocess.SubprocessError):
+                continue
+        print("（无法自动打开浏览器，请手动复制上面的网址）")
+        return
+
+    import webbrowser
+
+    if not webbrowser.open(url):
+        print("（无法自动打开浏览器，请手动复制上面的网址）")
+
+
+def serve(host: str = "0.0.0.0", port: int = 8000, open_browser: bool = True) -> int:  # noqa: S104
+    """启动本地服务。
+
+    默认绑 0.0.0.0 而不是 127.0.0.1：WSL 里服务跑在 Linux 侧、浏览器在 Windows 侧，
+    绑回环地址时宿主不一定能访问到。要限制只允许本机访问就显式传 --host 127.0.0.1。
+    """
+    import socket
+
     import uvicorn
 
-    url = f"http://{host}:{port}"
+    shown = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host  # noqa: S104
+    url = f"http://{shown}:{port}"
     print(f"chordsheet 界面已启动: {url}")
+
+    if host == "0.0.0.0":  # noqa: S104
+        try:
+            lan = socket.gethostbyname(socket.gethostname())
+            print(f"打不开就试: http://{lan}:{port}")
+        except OSError:
+            pass
+
     print("音频只在本机处理，不会上传到任何地方。Ctrl+C 停止。")
     if open_browser:
         import threading
-        import webbrowser
 
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        threading.Timer(1.0, lambda: _open_browser(url)).start()
     uvicorn.run(app, host=host, port=port, log_level="warning")
     return 0

@@ -74,6 +74,10 @@ audio { width: 100%; margin-top: 14px; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
 .note { font-size: 13px; color: var(--muted); margin-top: 12px; line-height: 1.7; }
+.btn { display: inline-block; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-size: 14px; font-weight: 560; }
+.btn:hover { filter: brightness(1.1); }
+.barline { position: absolute; top: 0; width: 1px; height: 76px; background: var(--muted); opacity: .55; }
+.barnum { position: absolute; top: 78px; font-size: 10px; color: var(--muted); padding-left: 3px; }
 #err { color: var(--bad); white-space: pre-wrap; }
 </style>
 </head>
@@ -114,6 +118,8 @@ audio { width: 100%; margin-top: 14px; }
     <div class="panel">
       <div id="track-scroll"><div id="track"><div id="playhead"></div></div></div>
       <audio id="audio" controls preload="auto"></audio>
+      <div style="margin-top:12px"><a id="midi-dl" class="btn" download>下载和弦 MIDI</a>
+        <span class="note" style="margin-left:10px">导出的是和弦构成音（根音·三音·五音），不是歌里实际弹的音符</span></div>
       <div class="legend">
         <span><i style="background:var(--ok)"></i>纯度高（一小节一个和弦）</span>
         <span><i style="background:var(--warn)"></i>纯度低（小节内和弦有变化）</span>
@@ -128,7 +134,7 @@ audio { width: 100%; margin-top: 14px; }
 <script>
 const PC = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const $ = id => document.getElementById(id);
-let DATA = null, BARS = [], PPS = 90;   // 每秒像素
+let DATA = null, CELLS = [], BARLINES = [], PPS = 90;   // 每秒像素
 
 /* ---------- 上传 ---------- */
 const drop = $("drop"), fileInput = $("file");
@@ -191,9 +197,12 @@ const prettyChord = l => !l || l === "N" ? "N.C." : l.replace(":maj", "").replac
 
 /* ---------- 渲染 ---------- */
 function render(d) {
-  DATA = d; BARS = d.chords.bars;
+  DATA = d;
+  CELLS = d.chords.cells;         // 小节内细分，一个小节可能有多段
+  BARLINES = d.chords.bar_lines;  // 从第 0 秒起，一秒不漏
   $("result").style.display = "block";
   $("audio").src = d.audio_url;
+  $("midi-dl").href = d.midi_url;
   document.title = d.filename + " — chordsheet";
 
   const k = d.key, b = d.beats, c = d.chords;
@@ -224,21 +233,36 @@ function buildTrack() {
   const track = $("track");
   PPS = Math.max(60, Math.min(160, 1100 / Math.max(DATA.duration, 1) * 8));
   track.style.width = (DATA.duration * PPS) + "px";
-  track.querySelectorAll(".barblk,.beatmark,.axis").forEach(e => e.remove());
+  track.querySelectorAll(".barblk,.beatmark,.axis,.barline,.barnum").forEach(e => e.remove());
 
-  BARS.forEach(bar => {
+  // 和弦块按 cell 画：一个小节内换了和弦就画成多块，不再压成一个标签
+  CELLS.forEach(cell => {
+    const w = (cell.end - cell.start) * PPS;
     const el = document.createElement("div");
-    el.className = "barblk" + (bar.diatonic || bar.chord === "N" ? "" : " nd");
-    el.style.left = (bar.start * PPS) + "px";
-    el.style.width = Math.max((bar.end - bar.start) * PPS - 1, 2) + "px";
-    // 纯度用颜色深浅表达：高纯度偏绿，低纯度偏黄
-    const good = bar.coverage >= .7;
-    const alpha = 0.12 + Math.min(bar.coverage, 1) * 0.3;
-    el.style.background = `color-mix(in srgb, var(--${good ? "ok" : "warn"}) ${Math.round(alpha * 100)}%, transparent)`;
-    el.innerHTML = `<div class="nm">${prettyChord(bar.chord)}</div><div class="no">${bar.index}　${Math.round(bar.coverage * 100)}%</div>`;
-    el.title = bar.shares.map(([l, s]) => `${prettyChord(l)} ${Math.round(s * 100)}%`).join("　");
-    el.onclick = () => { $("audio").currentTime = bar.start + 0.01; $("audio").play(); };
+    el.className = "barblk" + (cell.diatonic || cell.chord === "N" ? "" : " nd");
+    el.style.left = (cell.start * PPS) + "px";
+    el.style.width = Math.max(w - 1, 2) + "px";
+    el.style.background = cell.chord === "N"
+      ? "transparent"
+      : `color-mix(in srgb, var(--ok) ${Math.round(14 + Math.min(w / 200, 1) * 22)}%, transparent)`;
+    // 窄块放不下和弦名就只留色块，鼠标悬停仍能看到
+    el.innerHTML = w > 34 ? `<div class="nm">${prettyChord(cell.chord)}</div>` : "";
+    el.title = `第 ${cell.bar} 小节　${prettyChord(cell.chord)}　${cell.start.toFixed(2)}–${cell.end.toFixed(2)}s`;
+    el.onclick = () => { $("audio").currentTime = cell.start + 0.01; $("audio").play(); };
     track.appendChild(el);
+  });
+
+  // 小节线单独画，覆盖在和弦块之上
+  BARLINES.forEach(bar => {
+    const line = document.createElement("div");
+    line.className = "barline";
+    line.style.left = (bar.start * PPS) + "px";
+    track.appendChild(line);
+    const num = document.createElement("div");
+    num.className = "barnum";
+    num.style.left = (bar.start * PPS) + "px";
+    num.textContent = bar.index;
+    track.appendChild(num);
   });
 
   DATA.beats.times.forEach((t, i) => {
@@ -300,19 +324,19 @@ function lightPiano(label) {
 }
 
 /* ---------- 播放同步 ---------- */
-let lastBar = -1;
+let lastCell = -1;
 function loop() {
   const a = $("audio"), t = a.currentTime;
   $("playhead").style.left = (t * PPS) + "px";
 
   let idx = -1;
-  for (let i = 0; i < BARS.length; i++) if (t >= BARS[i].start && t < BARS[i].end) { idx = i; break; }
-  if (idx !== lastBar) {
-    lastBar = idx;
+  for (let i = 0; i < CELLS.length; i++) if (t >= CELLS[i].start && t < CELLS[i].end) { idx = i; break; }
+  if (idx !== lastCell) {
+    lastCell = idx;
     document.querySelectorAll(".barblk").forEach((e, i) => e.classList.toggle("cur", i === idx));
-    lightPiano(idx >= 0 ? BARS[idx].chord : null);
+    lightPiano(idx >= 0 ? CELLS[idx].chord : null);
     if (idx >= 0 && !a.paused) {
-      const sc = $("track-scroll"), x = BARS[idx].start * PPS;
+      const sc = $("track-scroll"), x = CELLS[idx].start * PPS;
       if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 140) sc.scrollLeft = x - 100;
     }
   }

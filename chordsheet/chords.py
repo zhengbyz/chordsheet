@@ -69,6 +69,82 @@ def is_diatonic(label: str, key: str) -> bool:
 
 
 @dataclass(frozen=True)
+class ChordCell:
+    """小节内的一段和弦。
+
+    一个小节可以有多个 cell。`BarChord` 把整小节压成一个标签，实测 45 个小节里
+    有 35 个内部其实有和弦变化——那个压缩会直接丢掉这些信息。
+    cell 保留和弦的真实边界，只在小节线处切断。
+    """
+
+    bar: int  # 所属小节号；0 表示第一条小节线之前的弱起
+    start: float
+    end: float
+    chord: str
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+def split_bars_by_chords(
+    segments: list[tuple[float, float, str]],
+    bars: list[tuple[int, float, float]],
+    *,
+    min_duration: float = 0.12,
+) -> list[ChordCell]:
+    """把和弦段按小节线切开，得到小节内的细分。
+
+    madmom 的输出是 10fps，所以短于约 0.1 秒的碎片是边界伪影而不是真实的和弦变化。
+    这些碎片会被并进相邻较长的那一段，而不是直接丢弃——丢弃会在时间轴上留下空洞。
+    """
+    cells: list[ChordCell] = []
+    for index, bar_start, bar_end in bars:
+        if bar_end <= bar_start:
+            continue
+
+        pieces: list[list[float | str]] = []
+        for seg_start, seg_end, label in segments:
+            start, end = max(bar_start, seg_start), min(bar_end, seg_end)
+            if end - start <= 0:
+                continue
+            # 相邻同名的段合并，避免同一个和弦被切成好几块
+            if pieces and pieces[-1][2] == label and abs(pieces[-1][1] - start) < 1e-6:
+                pieces[-1][1] = end
+            else:
+                pieces.append([start, end, label])
+
+        if not pieces:
+            cells.append(ChordCell(index, bar_start, bar_end, NO_CHORD))
+            continue
+
+        # 碎片并入相邻较长的一段。反复做直到没有碎片，因为合并后可能产生新的相邻同名段。
+        while len(pieces) > 1:
+            shortest = min(range(len(pieces)), key=lambda i: pieces[i][1] - pieces[i][0])
+            if pieces[shortest][1] - pieces[shortest][0] >= min_duration:
+                break
+            left = pieces[shortest - 1] if shortest > 0 else None
+            right = pieces[shortest + 1] if shortest + 1 < len(pieces) else None
+            keep_left = right is None or (
+                left is not None and (left[1] - left[0]) >= (right[1] - right[0])
+            )
+            if keep_left:
+                left[1] = pieces[shortest][1]
+            else:
+                right[0] = pieces[shortest][0]
+            pieces.pop(shortest)
+
+        # 首尾贴齐小节边界，中间不留缝
+        pieces[0][0] = bar_start
+        pieces[-1][1] = bar_end
+        for prev, nxt in zip(pieces, pieces[1:], strict=False):
+            nxt[0] = prev[1]
+
+        cells += [ChordCell(index, float(s), float(e), str(c)) for s, e, c in pieces]
+    return cells
+
+
+@dataclass(frozen=True)
 class BarChord:
     """一个小节配一个和弦。"""
 
