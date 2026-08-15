@@ -127,7 +127,7 @@ audio { width: 100%; margin-top: 10px; }
         <label><input type="checkbox" id="t-chord"> 和弦</label>
         <input type="range" id="v-chord" min="0" max="100" value="45">
         <span class="lv" id="l-chord">45%</span>
-        <span class="tag">按识别结果实时合成，勾上后和原曲一起放，用耳朵判断准不准</span>
+        <span class="tag">钢琴音色，按识别结果实时合成。勾上后和原曲一起放，用耳朵判断准不准</span>
       </div>
       <audio id="audio" controls preload="auto"></audio>
       <div style="margin-top:12px">
@@ -195,23 +195,57 @@ async function poll(id) {
   tick();
 }
 
-/* ---------- 和弦试听：Web Audio 合成 ----------
-   和 <audio> 的同步靠一次性对齐：播放开始时记下 audioContext 与 audio 各自的时钟，
-   然后把所有音符按这个偏移排到未来。暂停或跳转就全部取消重排。
-   逐音符提前调度比每帧轮询稳——浏览器的 requestAnimationFrame 会掉帧，
-   而 Web Audio 的调度是采样级精确的。                                        */
+/* ---------- 和弦试听：钢琴采样器 ----------
+   钢琴音色靠加法合成预先烘出几个基准音，再用 playbackRate 变调播放。
+   直接用振荡器叠泛音的话，一个和弦 4 个音 × 14 个泛音 = 56 个节点，
+   整首歌几千个，浏览器扛不住；烘成 buffer 之后每个音只要 1 个节点。
+
+   只用一个基准音在三个八度上拉伸会失真（高音尖、低音闷），所以每隔一个
+   八度烘一个，变调幅度控制在 ±6 个半音内——这也是真实采样器的做法。
+
+   与 <audio> 的同步靠一次性对齐：播放开始时记下两个时钟的偏移，把所有音符
+   排到未来；暂停或跳转就全部取消重排。逐音符提前调度比每帧轮询稳——
+   requestAnimationFrame 会掉帧，Web Audio 的调度是采样级精确的。          */
+const BASE_PITCHES = [36, 48, 60, 72, 84];   // C2 C3 C4 C5 C6
+
+function bakePiano(ctx, pitch, seconds) {
+  const sr = ctx.sampleRate, n = Math.floor(seconds * sr);
+  const buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+  const f0 = 440 * Math.pow(2, (pitch - 69) / 12);
+
+  for (let h = 1; h <= 14; h++) {
+    // 琴弦非谐性：泛音频率略高于整数倍，越高越明显。少了这个就像电子琴。
+    const f = f0 * h * Math.sqrt(1 + 0.0004 * h * h);
+    if (f > sr / 2 - 200) break;
+    const amp = 1 / Math.pow(h, 1.3);        // 频谱滚降
+    const decay = 1.1 + 0.45 * h;            // 高次泛音衰减更快 → 音色随时间变暗
+    const w = 2 * Math.PI * f / sr, ph = Math.random() * 6.283;
+    for (let i = 0; i < n; i++) d[i] += amp * Math.exp(-decay * i / sr) * Math.sin(w * i + ph);
+  }
+  // 4ms 起音，避免爆音又保留槌击感
+  const atk = Math.floor(0.004 * sr);
+  for (let i = 0; i < atk; i++) d[i] *= i / atk;
+
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+  if (peak > 0) for (let i = 0; i < n; i++) d[i] /= peak;
+  return buf;
+}
+
 const Synth = {
-  ctx: null, gain: null, live: [], playing: false,
+  ctx: null, gain: null, buffers: null, live: [],
   ensure() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.gain = this.ctx.createGain();
-    this.gain.gain.value = +$("v-chord").value / 100 * 0.5;
+    this.gain.gain.value = +$("v-chord").value / 100 * 0.6;
     this.gain.connect(this.ctx.destination);
+    // 低音要留更长的尾巴，高音衰减本来就快
+    this.buffers = BASE_PITCHES.map(p => ({ pitch: p, buf: bakePiano(this.ctx, p, p < 50 ? 4.5 : 3.0) }));
   },
   stop() {
     this.live.forEach(n => { try { n.stop(); } catch (e) {} });
-    this.live = []; this.playing = false;
+    this.live = [];
   },
   schedule(fromSec) {
     this.stop();
@@ -219,23 +253,32 @@ const Synth = {
     this.ensure();
     if (this.ctx.state === "suspended") this.ctx.resume();
     const t0 = this.ctx.currentTime + 0.06;   // 留一点调度余量
-    this.playing = true;
+
     for (const n of NOTES) {
       if (n.end <= fromSec) continue;
       const start = t0 + Math.max(n.start - fromSec, 0);
       const end = t0 + (n.end - fromSec);
-      const osc = this.ctx.createOscillator(), env = this.ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = 440 * Math.pow(2, (n.pitch - 69) / 12);
-      // 简单 ADSR，避免爆音；低音稍响一点
-      const peak = (n.velocity / 127) * (n.pitch < 48 ? 0.5 : 0.32);
-      env.gain.setValueAtTime(0, start);
-      env.gain.linearRampToValueAtTime(peak, start + 0.015);
-      env.gain.exponentialRampToValueAtTime(peak * 0.55, start + 0.25);
-      env.gain.setTargetAtTime(0.0001, Math.max(end - 0.08, start + 0.02), 0.04);
-      osc.connect(env); env.connect(this.gain);
-      osc.start(start); osc.stop(end + 0.12);
-      this.live.push(osc);
+
+      // 选最近的基准音，变调不超过 ±6 个半音
+      let best = this.buffers[0];
+      for (const b of this.buffers) {
+        if (Math.abs(n.pitch - b.pitch) < Math.abs(n.pitch - best.pitch)) best = b;
+      }
+      const src = this.ctx.createBufferSource(), env = this.ctx.createGain();
+      src.buffer = best.buf;
+      src.playbackRate.value = Math.pow(2, (n.pitch - best.pitch) / 12);
+      // 音符从中途开始时，跳过对应的已衰减部分
+      const offset = Math.max(fromSec - n.start, 0) * src.playbackRate.value;
+
+      const peak = (n.velocity / 127) * (n.pitch < 48 ? 0.9 : 0.6);
+      env.gain.setValueAtTime(peak, start);
+      // 到点后 120ms 阻尼收尾，模拟松开踏板/止音器落下，也让和弦边界干净
+      env.gain.setTargetAtTime(0.0001, Math.max(end - 0.05, start + 0.02), 0.05);
+
+      src.connect(env); env.connect(this.gain);
+      src.start(start, offset);
+      src.stop(end + 0.35);
+      this.live.push(src);
     }
   },
 };
@@ -359,7 +402,7 @@ $("t-chord").onchange = () => {
 };
 $("v-chord").oninput = e => {
   $("l-chord").textContent = e.target.value + "%";
-  if (Synth.gain) Synth.gain.gain.value = e.target.value / 100 * 0.5;
+  if (Synth.gain) Synth.gain.gain.value = e.target.value / 100 * 0.6;
 };
 
 const audio = $("audio");
