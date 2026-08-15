@@ -116,6 +116,10 @@ class BeatResult:
 
     # 末尾残片的判定阈值：短于中位小节长度的这个比例就不算小节。
     FRAGMENT_RATIO = 0.25
+    # 弱起短于这个秒数就不单独成小节。第一条小节线常检测在 0.02s 这种位置，
+    # 硬补一个 20 毫秒的「第 0 小节」会在 MIDI 里造出一个 20ms 的和弦、
+    # 在卷帘里造出一条看不见的缝。真正的弱起至少是零点几秒。
+    PICKUP_MIN = 0.15
 
     @property
     def bars(self) -> list[tuple[int, float, float]]:
@@ -147,7 +151,11 @@ class BeatResult:
 
         和 `bars` 的区别只在两头：
           - 开头的弱起补成第 0 小节（`bars` 从第一条小节线才开始）
-          - 末尾残片保留（`bars` 会丢掉太短的）
+          - 末尾残片并进上一小节（`bars` 直接丢掉，会漏掉那段音频）
+
+        两头都遵循同一条规则：**太短的残片并进邻居，而不是单独成格或丢弃**。
+        单独成格会造出 10 毫秒的小节——MIDI 里是个瞬间和弦，卷帘里是条看不见的缝；
+        丢弃则让那段音频凭空消失。合并两头都不占。
 
         `bars` 在音乐上更正确——小节本来就从强拍起算，弱起不属于任何编号小节，
         评测数字也建立在它上面。但界面上「开头几秒凭空消失」是明显的缺陷，
@@ -162,8 +170,21 @@ class BeatResult:
             (i + 1, start, end)
             for i, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True))
         ]
-        if marks[0] > 1e-6:
+
+        # 末尾残片并进上一小节
+        if len(result) > 1:
+            lengths = [end - start for _, start, end in result]
+            if lengths[-1] < np.median(lengths[:-1]) * self.FRAGMENT_RATIO:
+                tail_end = result[-1][2]
+                index, start, _ = result[-2]
+                result = [*result[:-2], (index, start, tail_end)]
+
+        if marks[0] > self.PICKUP_MIN:
             result.insert(0, (0, 0.0, float(marks[0])))
+        elif marks[0] > 1e-6:
+            # 弱起太短，并进第 1 小节
+            first = result[0]
+            result[0] = (first[0], 0.0, first[2])
         return result
 
     @property

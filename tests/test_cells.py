@@ -221,3 +221,50 @@ def test_written_midi_is_readable_and_ordered(tmp_path) -> None:
     # 开与关必须配平
     assert sum(m.type == "note_on" for m in messages) == sum(m.type == "note_off" for m in messages)
     assert loaded.length == pytest.approx(5.0, abs=0.05)
+
+
+def test_tiny_pickup_is_merged_into_bar_one() -> None:
+    """第一条小节线检测在 0.02s 这种位置时，不该造出一个 20 毫秒的第 0 小节。
+
+    那会在 MIDI 里变成一个 20ms 的和弦、在卷帘里变成一条看不见的缝。
+    并进第 1 小节，既不留缝也不产生垃圾格子。
+    """
+    beats = make_beats(offset=0.02)
+    full = beats.full_bars
+
+    assert full[0][0] == 1
+    assert full[0][1] == pytest.approx(0.0)
+    assert all(index != 0 for index, _, _ in full)
+
+
+def test_real_pickup_still_becomes_bar_zero() -> None:
+    """够长的弱起仍然单独成第 0 小节。"""
+    beats = make_beats(offset=0.6)
+    assert beats.full_bars[0][0] == 0
+    assert beats.full_bars[0][2] == pytest.approx(0.6)
+
+
+def test_tiny_tail_is_merged_into_previous_bar() -> None:
+    """最后一条小节线贴着曲末时，不该切出一个 10 毫秒的小节。
+
+    和开头的弱起同一条规则：太短的残片并进邻居，既不单独成格也不丢弃。
+    """
+    beats = make_beats(bars_n=3)
+    beats.duration = float(beats.times[-1]) + 0.51  # 末拍后再多 0.01s
+    full = beats.full_bars
+
+    assert len(full) == 3
+    assert full[-1][2] == pytest.approx(beats.duration)
+    assert min(end - start for _, start, end in full) > 0.5
+
+
+def test_full_bars_still_covers_everything_after_merging() -> None:
+    """两头合并之后仍然一秒不漏。"""
+    beats = make_beats(offset=0.03, bars_n=3)
+    beats.duration = float(beats.times[-1]) + 0.52
+    full = beats.full_bars
+
+    assert full[0][1] == pytest.approx(0.0)
+    assert full[-1][2] == pytest.approx(beats.duration)
+    for prev, nxt in zip(full[:-1], full[1:], strict=True):
+        assert prev[2] == pytest.approx(nxt[1])

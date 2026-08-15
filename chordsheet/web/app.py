@@ -64,7 +64,7 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
             snap_chords_to_beats,
         )
         from chordsheet.key import detect_key, mean_chroma
-        from chordsheet.midi import chord_notes
+        from chordsheet.midi import cells_to_notes, chord_notes
 
         job.stage, job.progress = "加载音频", 0.05
         y, sr = librosa.load(str(job.audio_path), sr=MADMOM_SAMPLE_RATE, mono=True)
@@ -160,6 +160,11 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
                 ],
                 "bar_lines": [{"index": i, "start": s, "end": e} for i, s, e in beats.full_bars],
             },
+            # 卷帘画的和导出的 MIDI 用同一份数据，避免「看到的和导出的不一样」
+            "notes": [
+                {"pitch": n.pitch, "start": n.start, "end": n.end, "velocity": n.velocity}
+                for n in cells_to_notes(cells)
+            ],
             "midi_url": f"/api/midi/{job.id}",
         }
         job.stage, job.progress, job.done = "完成", 1.0, True

@@ -8,76 +8,81 @@
 :root {
   --bg: #fbfaf8; --panel: #ffffff; --ink: #1a1a1a; --muted: #6b6b6b;
   --line: #e3e0da; --accent: #c2410c; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
-  --key-white: #ffffff; --key-black: #2a2a2a; --key-lit: #f97316; --key-root: #c2410c;
+  --grid: #eeebe5; --grid-bar: #cfcac1; --grid-row: #f6f4f0;
+  --key-white: #ffffff; --key-black: #2b2b2b; --note: #16a34a; --note-lit: #f97316;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #17171a; --panel: #202024; --ink: #ececec; --muted: #9a9a9a;
     --line: #34343a; --accent: #fb923c; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
-    --key-white: #d8d8d6; --key-black: #1a1a1c; --key-lit: #fb923c; --key-root: #f97316;
+    --grid: #26262b; --grid-bar: #45454e; --grid-row: #1d1d21;
+    --key-white: #d6d6d3; --key-black: #232327; --note: #4ade80; --note-lit: #fb923c;
   }
 }
 * { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
-}
-.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
-h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
-.sub { color: var(--muted); margin: 0 0 26px; font-size: 14px; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 18px; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 26px 18px 60px; }
+h1 { font-size: 25px; margin: 0 0 4px; letter-spacing: -.02em; }
+.sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 
-/* ---- 上传 ---- */
-#drop { border: 2px dashed var(--line); border-radius: 12px; padding: 44px 20px; text-align: center; cursor: pointer; transition: .15s; }
+#drop { border: 2px dashed var(--line); border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: .15s; }
 #drop:hover, #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 #drop strong { display: block; font-size: 17px; margin-bottom: 6px; }
 #drop span { color: var(--muted); font-size: 13px; }
 #file { display: none; }
-.opts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-top: 16px; font-size: 13px; color: var(--muted); }
+.opts { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-top: 14px; font-size: 13px; color: var(--muted); }
 .opts label { display: flex; gap: 6px; align-items: center; }
-.opts input { width: 74px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
+.opts input { width: 72px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
 
-/* ---- 进度 ---- */
 #progress { display: none; }
 .bar-outer { height: 7px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 12px 0 8px; }
 .bar-inner { height: 100%; width: 0; background: var(--accent); transition: width .35s ease; }
 
-/* ---- 结果头部 ---- */
 #result { display: none; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
-.stat { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; }
 .stat .k { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
-.stat .v { font-size: 21px; font-weight: 620; letter-spacing: -0.01em; }
+.stat .v { font-size: 20px; font-weight: 620; letter-spacing: -.01em; }
 .stat .n { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
 
-/* ---- 钢琴 ---- */
-#piano { width: 100%; height: auto; display: block; }
-.now { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
-.now .chord { font-size: 40px; font-weight: 680; letter-spacing: -0.02em; min-width: 130px; }
-.now .notes { color: var(--muted); font-size: 14px; }
+/* ---- 音轨控制 ---- */
+.trk { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.trk:last-child { border-bottom: 0; }
+.trk label { display: flex; align-items: center; gap: 8px; min-width: 130px; font-weight: 560; cursor: pointer; }
+.trk input[type=range] { flex: 1; max-width: 220px; accent-color: var(--accent); }
+.trk .lv { font-size: 12px; color: var(--muted); min-width: 40px; }
+.trk .tag { font-size: 12px; color: var(--muted); }
 
-/* ---- 和弦音轨 ---- */
-#track-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
-#track { position: relative; height: 108px; }
-.barblk { position: absolute; top: 0; height: 76px; border-right: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; overflow: hidden; }
-.barblk:hover { filter: brightness(1.12); }
-.barblk .nm { font-weight: 640; font-size: 14px; white-space: nowrap; }
-.barblk .no { font-size: 10px; color: var(--muted); margin-top: 2px; }
-.barblk.nd { outline: 1.5px dashed var(--warn); outline-offset: -3px; }
-.barblk.cur { box-shadow: inset 0 0 0 2px var(--accent); }
-.beatmark { position: absolute; top: 76px; width: 1px; height: 8px; background: var(--muted); opacity: .45; }
-.beatmark.db { height: 16px; opacity: .9; background: var(--accent); }
-.axis { position: absolute; top: 92px; font-size: 10px; color: var(--muted); transform: translateX(-50%); }
-#playhead { position: absolute; top: 0; width: 2px; height: 76px; background: var(--accent); pointer-events: none; }
-audio { width: 100%; margin-top: 14px; }
-.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
-.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
-.note { font-size: 13px; color: var(--muted); margin-top: 12px; line-height: 1.7; }
+/* ---- 钢琴卷帘 ---- */
+#roll { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: auto; height: 480px; background: var(--bg); }
+#inner { position: relative; }
+#keys { position: sticky; left: 0; top: 0; z-index: 3; width: 58px; }
+#keys .k { position: absolute; left: 0; width: 58px; border-bottom: 1px solid var(--line); font-size: 9px; color: var(--muted); text-align: right; padding-right: 4px; line-height: 1; display: flex; align-items: center; justify-content: flex-end; }
+#keys .k.w { background: var(--key-white); color: #555; }
+#keys .k.b { background: var(--key-black); color: #bbb; width: 40px; z-index: 1; }
+#grid { position: absolute; top: 0; }
+.row { position: absolute; left: 0; height: 100%; }
+.gl { position: absolute; top: 0; width: 1px; background: var(--grid); }
+.gl.bar { background: var(--grid-bar); width: 1px; }
+.note { position: absolute; background: var(--note); border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
+.note.lit { background: var(--note-lit); }
+.strip { position: sticky; top: 0; z-index: 2; height: 26px; }
+.chip { position: absolute; top: 0; height: 26px; display: flex; align-items: center; padding: 0 5px; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; border-right: 1px solid var(--line); background: var(--panel); }
+.chip.nd { color: var(--warn); }
+.barnum { position: absolute; top: 26px; font-size: 9px; color: var(--muted); padding-left: 3px; z-index: 2; }
+#ph { position: absolute; top: 0; width: 2px; background: var(--accent); z-index: 4; pointer-events: none; }
+.tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.tools button { padding: 4px 11px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+.tools button:hover { border-color: var(--accent); }
+
+audio { width: 100%; margin-top: 10px; }
 .btn { display: inline-block; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-size: 14px; font-weight: 560; }
 .btn:hover { filter: brightness(1.1); }
-.barline { position: absolute; top: 0; width: 1px; height: 76px; background: var(--muted); opacity: .55; }
-.barnum { position: absolute; top: 78px; font-size: 10px; color: var(--muted); padding-left: 3px; }
+.note-txt { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
 #err { color: var(--bad); white-space: pre-wrap; }
 </style>
 </head>
@@ -103,38 +108,61 @@ audio { width: 100%; margin-top: 14px; }
   <div class="panel" id="progress">
     <div id="stage">准备中…</div>
     <div class="bar-outer"><div class="bar-inner" id="pbar"></div></div>
-    <div class="note" id="ptip">一首 4 分钟的歌约需 1-2 分钟（纯 CPU 推理）。</div>
+    <div class="note-txt" id="ptip">一首 4 分钟的歌约需 1-2 分钟（纯 CPU 推理）。</div>
     <div id="err"></div>
   </div>
 
   <div id="result">
-    <div class="panel"><div class="stats" id="stats"></div><div class="note" id="warnings"></div></div>
+    <div class="panel"><div class="stats" id="stats"></div><div class="note-txt" id="warnings"></div></div>
 
     <div class="panel">
-      <div class="now"><div class="chord" id="now-chord">—</div><div class="notes" id="now-notes"></div></div>
-      <svg id="piano" viewBox="0 0 728 190" preserveAspectRatio="xMidYMid meet"></svg>
+      <h2>音轨</h2>
+      <div class="trk">
+        <label><input type="checkbox" id="t-song" checked> 原曲</label>
+        <input type="range" id="v-song" min="0" max="100" value="100">
+        <span class="lv" id="l-song">100%</span>
+        <span class="tag">上传的音频</span>
+      </div>
+      <div class="trk">
+        <label><input type="checkbox" id="t-chord"> 和弦</label>
+        <input type="range" id="v-chord" min="0" max="100" value="45">
+        <span class="lv" id="l-chord">45%</span>
+        <span class="tag">按识别结果实时合成，勾上后和原曲一起放，用耳朵判断准不准</span>
+      </div>
+      <audio id="audio" controls preload="auto"></audio>
+      <div style="margin-top:12px">
+        <a id="midi-dl" class="btn" download>下载和弦 MIDI</a>
+        <span class="note-txt" style="margin-left:10px">导出的是和弦构成音（根音·三音·五音），不是歌里实际弹的音符</span>
+      </div>
     </div>
 
     <div class="panel">
-      <div id="track-scroll"><div id="track"><div id="playhead"></div></div></div>
-      <audio id="audio" controls preload="auto"></audio>
-      <div style="margin-top:12px"><a id="midi-dl" class="btn" download>下载和弦 MIDI</a>
-        <span class="note" style="margin-left:10px">导出的是和弦构成音（根音·三音·五音），不是歌里实际弹的音符</span></div>
-      <div class="legend">
-        <span><i style="background:var(--ok)"></i>纯度高（一小节一个和弦）</span>
-        <span><i style="background:var(--warn)"></i>纯度低（小节内和弦有变化）</span>
-        <span><i style="outline:1.5px dashed var(--warn);outline-offset:-2px"></i>调外和弦</span>
-        <span><i style="background:var(--accent);width:2px;border-radius:0"></i>小节线</span>
+      <h2>钢琴卷帘</h2>
+      <div class="tools">
+        <button id="zoom-out">横向 −</button><button id="zoom-in">横向 ＋</button>
+        <button id="fit">回到音符区</button>
+        <span id="roll-info"></span>
       </div>
-      <div class="note">点音轨上任意小节可跳转播放。</div>
+      <div id="roll"><div id="inner">
+        <div id="keys"></div><div id="grid"></div><div id="ph"></div>
+      </div></div>
+      <div class="note-txt">88 键，音块长度即和弦持续时间。点网格可跳转播放。</div>
     </div>
   </div>
 </div>
 
 <script>
 const PC = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const BLACK = [1,3,6,8,10];
+const LOW = 21, HIGH = 108, KEYS = HIGH - LOW + 1;   // A0..C8，88 键
+const KH = 11, GUTTER = 58;                          // 每键高度、左侧键盘宽度
 const $ = id => document.getElementById(id);
-let DATA = null, CELLS = [], BARLINES = [], PPS = 90;   // 每秒像素
+let DATA=null, CELLS=[], BARLINES=[], NOTES=[], PPS=90;
+
+const isBlack = p => BLACK.includes(((p % 12) + 12) % 12);
+const yOf = p => (HIGH - p) * KH;                    // 高音在上
+const prettyChord = l => !l || l === "N" ? "N.C." : l.replace(":maj","").replace(":min","m");
+const noteName = p => PC[((p % 12) + 12) % 12] + (Math.floor(p / 12) - 1);
 
 /* ---------- 上传 ---------- */
 const drop = $("drop"), fileInput = $("file");
@@ -145,38 +173,21 @@ drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if (e.da
 fileInput.onchange = () => { if (fileInput.files[0]) upload(fileInput.files[0]); };
 
 async function upload(f) {
-  $("upload-panel").style.display = "none";
-  $("result").style.display = "none";
-  $("progress").style.display = "block";
-  $("err").textContent = "";
-  $("stage").textContent = "上传中…";
-
-  const fd = new FormData();
-  fd.append("file", f);
-  const qs = new URLSearchParams({
-    meters: $("meters").value || "3,4",
-    min_bpm: $("minbpm").value || "55",
-    max_bpm: $("maxbpm").value || "215",
-  });
+  $("upload-panel").style.display = "none"; $("result").style.display = "none";
+  $("progress").style.display = "block"; $("err").textContent = ""; $("stage").textContent = "上传中…";
+  const fd = new FormData(); fd.append("file", f);
+  const qs = new URLSearchParams({ meters: $("meters").value || "3,4", min_bpm: $("minbpm").value || "55", max_bpm: $("maxbpm").value || "215" });
   let res;
-  try {
-    res = await fetch("/api/analyze?" + qs, { method: "POST", body: fd });
-  } catch (e) { return fail("无法连接本地服务：" + e.message); }
+  try { res = await fetch("/api/analyze?" + qs, { method: "POST", body: fd }); }
+  catch (e) { return fail("无法连接本地服务：" + e.message); }
   if (!res.ok) { const t = await res.json().catch(() => ({})); return fail(t.detail || ("上传失败 HTTP " + res.status)); }
   poll((await res.json()).job_id);
 }
-
-function fail(msg) {
-  $("stage").textContent = "失败";
-  $("err").textContent = msg;
-  $("upload-panel").style.display = "block";
-}
-
+function fail(m) { $("stage").textContent = "失败"; $("err").textContent = m; $("upload-panel").style.display = "block"; }
 async function poll(id) {
   const tick = async () => {
     const s = await (await fetch("/api/status/" + id)).json();
-    $("stage").textContent = s.stage;
-    $("pbar").style.width = Math.round(s.progress * 100) + "%";
+    $("stage").textContent = s.stage; $("pbar").style.width = Math.round(s.progress * 100) + "%";
     if (s.error) return fail(s.error);
     if (s.done && s.result) { $("progress").style.display = "none"; render(s.result); return; }
     setTimeout(tick, 600);
@@ -184,164 +195,183 @@ async function poll(id) {
   tick();
 }
 
-/* ---------- 和弦工具 ---------- */
-function parseChord(label) {
-  if (!label || label === "N" || !label.includes(":")) return null;
-  const [root, quality] = label.split(":");
-  const i = PC.indexOf(root);
-  if (i < 0) return null;
-  const intervals = quality === "min" ? [0, 3, 7] : [0, 4, 7];
-  return { root: i, quality, pcs: intervals.map(v => (i + v) % 12) };
-}
-const prettyChord = l => !l || l === "N" ? "N.C." : l.replace(":maj", "").replace(":min", "m");
+/* ---------- 和弦试听：Web Audio 合成 ----------
+   和 <audio> 的同步靠一次性对齐：播放开始时记下 audioContext 与 audio 各自的时钟，
+   然后把所有音符按这个偏移排到未来。暂停或跳转就全部取消重排。
+   逐音符提前调度比每帧轮询稳——浏览器的 requestAnimationFrame 会掉帧，
+   而 Web Audio 的调度是采样级精确的。                                        */
+const Synth = {
+  ctx: null, gain: null, live: [], playing: false,
+  ensure() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.gain = this.ctx.createGain();
+    this.gain.gain.value = +$("v-chord").value / 100 * 0.5;
+    this.gain.connect(this.ctx.destination);
+  },
+  stop() {
+    this.live.forEach(n => { try { n.stop(); } catch (e) {} });
+    this.live = []; this.playing = false;
+  },
+  schedule(fromSec) {
+    this.stop();
+    if (!$("t-chord").checked || !NOTES.length) return;
+    this.ensure();
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    const t0 = this.ctx.currentTime + 0.06;   // 留一点调度余量
+    this.playing = true;
+    for (const n of NOTES) {
+      if (n.end <= fromSec) continue;
+      const start = t0 + Math.max(n.start - fromSec, 0);
+      const end = t0 + (n.end - fromSec);
+      const osc = this.ctx.createOscillator(), env = this.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = 440 * Math.pow(2, (n.pitch - 69) / 12);
+      // 简单 ADSR，避免爆音；低音稍响一点
+      const peak = (n.velocity / 127) * (n.pitch < 48 ? 0.5 : 0.32);
+      env.gain.setValueAtTime(0, start);
+      env.gain.linearRampToValueAtTime(peak, start + 0.015);
+      env.gain.exponentialRampToValueAtTime(peak * 0.55, start + 0.25);
+      env.gain.setTargetAtTime(0.0001, Math.max(end - 0.08, start + 0.02), 0.04);
+      osc.connect(env); env.connect(this.gain);
+      osc.start(start); osc.stop(end + 0.12);
+      this.live.push(osc);
+    }
+  },
+};
 
 /* ---------- 渲染 ---------- */
 function render(d) {
-  DATA = d;
-  CELLS = d.chords.cells;         // 小节内细分，一个小节可能有多段
-  BARLINES = d.chords.bar_lines;  // 从第 0 秒起，一秒不漏
+  DATA = d; CELLS = d.chords.cells; BARLINES = d.chords.bar_lines; NOTES = d.notes || [];
   $("result").style.display = "block";
-  $("audio").src = d.audio_url;
-  $("midi-dl").href = d.midi_url;
+  $("audio").src = d.audio_url; $("midi-dl").href = d.midi_url;
   document.title = d.filename + " — chordsheet";
 
   const k = d.key, b = d.beats, c = d.chords;
   const pct = v => v === null || v === undefined ? "—" : Math.round(v * 100) + "%";
   const cls = (v, hi, mid) => v >= hi ? "ok" : v >= mid ? "warn" : "bad";
-
   $("stats").innerHTML = [
     ["调号（可靠）", k.signature.split("（")[0], k.signature.match(/（(.*)）/)?.[1] || "", ""],
     ["大小调（不可靠）", k.primary, k.agree ? "两套模板一致" : `另一模板说 ${k.alternative}`, k.agree ? "ok" : "warn"],
     ["速度", b.tempo.toFixed(1) + " BPM", b.agreement && b.agreement !== "一致" ? b.agreement : `${b.meter}/4　稳定性 ${b.stability.toFixed(3)}`, b.agreement && b.agreement !== "一致" ? "bad" : ""],
     ["小节内和弦纯度", pct(c.mean_coverage), c.ambiguous_bars.length + " 个小节混杂", cls(c.mean_coverage, .85, .7)],
     ["调内和弦占比", pct(c.diatonic_ratio), c.diatonic_ratio < .7 ? "调式或和弦有一环不对" : "和弦与调式互证", cls(c.diatonic_ratio ?? 0, .85, .7)],
-    ["小节数", String(c.bars.length), d.duration.toFixed(1) + " 秒", ""],
-  ].map(([kk, v, n, cl]) => `<div class="stat"><div class="k">${kk}</div><div class="v ${cl}">${v}</div><div class="n">${n}</div></div>`).join("");
+    ["小节 / 和弦段", `${c.bar_lines.length} / ${CELLS.length}`, d.duration.toFixed(1) + " 秒", ""],
+  ].map(([kk,v,n,cl]) => `<div class="stat"><div class="k">${kk}</div><div class="v ${cl}">${v}</div><div class="n">${n}</div></div>`).join("");
 
   const w = [];
-  if (b.anacrusis_beats) w.push(`开头 ${b.anacrusis_beats} 拍（${b.uncovered_head.toFixed(2)}s）是弱起，不属于任何小节。`);
+  if (b.anacrusis_beats) w.push(`开头 ${b.anacrusis_beats} 拍（${b.uncovered_head.toFixed(2)}s）是弱起，已归入第 0 小节。`);
   if (b.agreement && b.agreement !== "一致") w.push(`速度存疑：${b.agreement}。倍速错误时拍点位置仍是对的，但小节会长一倍——调整上方 BPM 范围重试。`);
   if (c.diatonic_ratio !== null && c.diatonic_ratio < .7) w.push("调内和弦占比偏低。实测和弦比调式更可靠，若两者冲突，优先信和弦。");
   $("warnings").innerHTML = w.join("<br>");
 
-  buildTrack();
-  buildPiano();
+  PPS = Math.max(28, Math.min(140, 900 / Math.max(DATA.duration, 1) * 6));
+  buildRoll(); fitToNotes();
   requestAnimationFrame(loop);
 }
 
-function buildTrack() {
-  const track = $("track");
-  PPS = Math.max(60, Math.min(160, 1100 / Math.max(DATA.duration, 1) * 8));
-  track.style.width = (DATA.duration * PPS) + "px";
-  track.querySelectorAll(".barblk,.beatmark,.axis,.barline,.barnum").forEach(e => e.remove());
+function buildRoll() {
+  const W = Math.max(DATA.duration * PPS, 200), H = KEYS * KH;
+  $("inner").style.width = (GUTTER + W) + "px";
+  $("inner").style.height = (H + 26) + "px";
+  $("ph").style.height = (H + 26) + "px";
 
-  // 和弦块按 cell 画：一个小节内换了和弦就画成多块，不再压成一个标签
-  CELLS.forEach(cell => {
-    const w = (cell.end - cell.start) * PPS;
-    const el = document.createElement("div");
-    el.className = "barblk" + (cell.diatonic || cell.chord === "N" ? "" : " nd");
-    el.style.left = (cell.start * PPS) + "px";
-    el.style.width = Math.max(w - 1, 2) + "px";
-    el.style.background = cell.chord === "N"
-      ? "transparent"
-      : `color-mix(in srgb, var(--ok) ${Math.round(14 + Math.min(w / 200, 1) * 22)}%, transparent)`;
-    // 窄块放不下和弦名就只留色块，鼠标悬停仍能看到
-    el.innerHTML = w > 34 ? `<div class="nm">${prettyChord(cell.chord)}</div>` : "";
-    el.title = `第 ${cell.bar} 小节　${prettyChord(cell.chord)}　${cell.start.toFixed(2)}–${cell.end.toFixed(2)}s`;
-    el.onclick = () => { $("audio").currentTime = cell.start + 0.01; $("audio").play(); };
-    track.appendChild(el);
-  });
-
-  // 小节线单独画，覆盖在和弦块之上
-  BARLINES.forEach(bar => {
-    const line = document.createElement("div");
-    line.className = "barline";
-    line.style.left = (bar.start * PPS) + "px";
-    track.appendChild(line);
-    const num = document.createElement("div");
-    num.className = "barnum";
-    num.style.left = (bar.start * PPS) + "px";
-    num.textContent = bar.index;
-    track.appendChild(num);
-  });
-
-  DATA.beats.times.forEach((t, i) => {
-    const m = document.createElement("div");
-    m.className = "beatmark" + (DATA.beats.positions[i] === 1 ? " db" : "");
-    m.style.left = (t * PPS) + "px";
-    track.appendChild(m);
-  });
-
-  const step = DATA.duration > 180 ? 30 : DATA.duration > 60 ? 10 : 5;
-  for (let t = 0; t <= DATA.duration; t += step) {
-    const a = document.createElement("div");
-    a.className = "axis";
-    a.style.left = (t * PPS) + "px";
-    a.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
-    track.appendChild(a);
+  // 左侧 88 键。黑键窄一点、压在白键上，形成常见的键盘轮廓。
+  let keys = "";
+  for (let p = HIGH; p >= LOW; p--) {
+    const black = isBlack(p);
+    keys += `<div class="k ${black ? "b" : "w"}" style="top:${yOf(p) + 26}px;height:${KH}px">`
+          + (p % 12 === 0 ? noteName(p) : "") + `</div>`;
   }
-}
+  $("keys").style.height = (H + 26) + "px";
+  $("keys").innerHTML = keys;
 
-/* 两个八度的钢琴键盘。白键 7 个一组，黑键插在 C-D D-E F-G G-A A-B 之间。 */
-const WHITE_PC = [0, 2, 4, 5, 7, 9, 11];
-const BLACK_AFTER = [0, 1, 3, 4, 5];   // 白键序号，其右上方有黑键
-function buildPiano() {
-  const OCT = 2, WW = 52, WH = 168, BW = 32, BH = 104, PAD = 2;
-  const svg = $("piano");
-  svg.setAttribute("viewBox", `0 0 ${OCT * 7 * WW + PAD * 2} ${WH + 18}`);
+  const g = $("grid");
+  g.style.left = GUTTER + "px"; g.style.width = W + "px"; g.style.height = (H + 26) + "px";
+
   let html = "";
-  for (let o = 0; o < OCT; o++) {
-    for (let i = 0; i < 7; i++) {
-      const x = PAD + (o * 7 + i) * WW, pc = WHITE_PC[i];
-      html += `<rect class="wk" data-pc="${pc}" x="${x}" y="0" width="${WW - 1}" height="${WH}" rx="4"
-                 fill="var(--key-white)" stroke="var(--line)"/>`;
-      html += `<text x="${x + WW / 2}" y="${WH + 13}" text-anchor="middle" font-size="11" fill="var(--muted)">${PC[pc]}</text>`;
-    }
+  // 行底色：黑键行加深，读音高时有参照
+  for (let p = HIGH; p >= LOW; p--) {
+    if (isBlack(p)) html += `<div class="row" style="top:${yOf(p) + 26}px;height:${KH}px;width:${W}px;background:var(--grid-row)"></div>`;
   }
-  for (let o = 0; o < OCT; o++) {
-    for (const i of BLACK_AFTER) {
-      const x = PAD + (o * 7 + i) * WW + WW - BW / 2, pc = WHITE_PC[i] + 1;
-      html += `<rect class="bk" data-pc="${pc}" x="${x}" y="0" width="${BW}" height="${BH}" rx="3"
-                 fill="var(--key-black)" stroke="var(--line)"/>`;
-    }
+  // 拍线与小节线
+  for (const t of DATA.beats.times) html += `<div class="gl" style="left:${t * PPS}px;height:${H + 26}px"></div>`;
+  for (const b of BARLINES) html += `<div class="gl bar" style="left:${b.start * PPS}px;height:${H + 26}px"></div>`;
+  // 顶部和弦条（sticky，横向跟着滚）
+  html += `<div class="strip" style="width:${W}px">`;
+  for (const c of CELLS) {
+    const w = (c.end - c.start) * PPS;
+    html += `<div class="chip${c.diatonic || c.chord === "N" ? "" : " nd"}" style="left:${c.start * PPS}px;width:${Math.max(w - 1, 2)}px"`
+          + ` title="第 ${c.bar} 小节　${prettyChord(c.chord)}">${w > 30 ? prettyChord(c.chord) : ""}</div>`;
   }
-  svg.innerHTML = html;
+  html += `</div>`;
+  for (const b of BARLINES) html += `<div class="barnum" style="left:${b.start * PPS}px">${b.index}</div>`;
+  // 音块
+  NOTES.forEach((n, i) => {
+    html += `<div class="note" data-i="${i}" style="left:${n.start * PPS}px;top:${yOf(n.pitch) + 26 + 1}px;`
+          + `width:${Math.max((n.end - n.start) * PPS - 1, 2)}px;height:${KH - 2}px" title="${noteName(n.pitch)}"></div>`;
+  });
+  g.innerHTML = html;
+
+  g.onclick = e => {
+    const x = e.clientX - g.getBoundingClientRect().left;
+    $("audio").currentTime = Math.max(x / PPS, 0);
+    if (!$("audio").paused) Synth.schedule($("audio").currentTime);
+  };
+  $("roll-info").textContent = `${NOTES.length} 个音块　${(PPS).toFixed(0)} px/秒`;
 }
 
-function lightPiano(label) {
-  const parsed = parseChord(label);
-  const pcs = parsed ? parsed.pcs : [];
-  $("piano").querySelectorAll("rect").forEach(r => {
-    const pc = +r.dataset.pc, isW = r.classList.contains("wk");
-    const on = pcs.includes(pc);
-    r.setAttribute("fill", on ? (pc === parsed.root ? "var(--key-root)" : "var(--key-lit)")
-                              : (isW ? "var(--key-white)" : "var(--key-black)"));
-  });
-  $("now-chord").textContent = prettyChord(label);
-  $("now-notes").textContent = parsed
-    ? parsed.pcs.map(p => PC[p]).join(" · ") + `　（根音 ${PC[parsed.root]}）`
-    : (label === "N" ? "无和弦" : "");
+function fitToNotes() {
+  if (!NOTES.length) return;
+  const lo = Math.min(...NOTES.map(n => n.pitch)), hi = Math.max(...NOTES.map(n => n.pitch));
+  const mid = (yOf(hi) + yOf(lo)) / 2;
+  $("roll").scrollTop = Math.max(mid - $("roll").clientHeight / 2 + 26, 0);
 }
 
 /* ---------- 播放同步 ---------- */
-let lastCell = -1;
+let lit = new Set();
 function loop() {
   const a = $("audio"), t = a.currentTime;
-  $("playhead").style.left = (t * PPS) + "px";
+  $("ph").style.left = (GUTTER + t * PPS) + "px";
 
-  let idx = -1;
-  for (let i = 0; i < CELLS.length; i++) if (t >= CELLS[i].start && t < CELLS[i].end) { idx = i; break; }
-  if (idx !== lastCell) {
-    lastCell = idx;
-    document.querySelectorAll(".barblk").forEach((e, i) => e.classList.toggle("cur", i === idx));
-    lightPiano(idx >= 0 ? CELLS[idx].chord : null);
-    if (idx >= 0 && !a.paused) {
-      const sc = $("track-scroll"), x = CELLS[idx].start * PPS;
-      if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 140) sc.scrollLeft = x - 100;
-    }
+  const now = new Set();
+  NOTES.forEach((n, i) => { if (t >= n.start && t < n.end) now.add(i); });
+  if (now.size !== lit.size || [...now].some(i => !lit.has(i))) {
+    $("grid").querySelectorAll(".note").forEach(el => {
+      el.classList.toggle("lit", now.has(+el.dataset.i));
+    });
+    lit = now;
+  }
+  if (!a.paused) {
+    const sc = $("roll"), x = t * PPS;
+    if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - GUTTER - 120) sc.scrollLeft = x - 150;
   }
   requestAnimationFrame(loop);
 }
+
+/* ---------- 音轨控制 ---------- */
+$("t-song").onchange = () => { $("audio").muted = !$("t-song").checked; };
+$("v-song").oninput = e => { $("audio").volume = e.target.value / 100; $("l-song").textContent = e.target.value + "%"; };
+$("t-chord").onchange = () => {
+  $("l-chord").textContent = $("v-chord").value + "%";
+  if ($("t-chord").checked && !$("audio").paused) Synth.schedule($("audio").currentTime);
+  else Synth.stop();
+};
+$("v-chord").oninput = e => {
+  $("l-chord").textContent = e.target.value + "%";
+  if (Synth.gain) Synth.gain.gain.value = e.target.value / 100 * 0.5;
+};
+
+const audio = $("audio");
+audio.addEventListener("play", () => Synth.schedule(audio.currentTime));
+audio.addEventListener("pause", () => Synth.stop());
+audio.addEventListener("seeking", () => Synth.stop());
+audio.addEventListener("seeked", () => { if (!audio.paused) Synth.schedule(audio.currentTime); });
+audio.addEventListener("ratechange", () => { if (!audio.paused) Synth.schedule(audio.currentTime); });
+
+$("zoom-in").onclick = () => { PPS = Math.min(PPS * 1.5, 600); buildRoll(); };
+$("zoom-out").onclick = () => { PPS = Math.max(PPS / 1.5, 8); buildRoll(); };
+$("fit").onclick = fitToNotes;
 </script>
 </body>
 </html>
