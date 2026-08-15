@@ -234,6 +234,9 @@ function bakePiano(ctx, pitch, seconds) {
 
 const Synth = {
   ctx: null, gain: null, buffers: null, live: [],
+  // 音频时钟与 AudioContext 时钟的对齐关系：audio 时刻 x ↔ ctx 时刻 T0+(x-A0)/rate
+  map: null,
+
   ensure() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -243,21 +246,35 @@ const Synth = {
     // 低音要留更长的尾巴，高音衰减本来就快
     this.buffers = BASE_PITCHES.map(p => ({ pitch: p, buf: bakePiano(this.ctx, p, p < 50 ? 4.5 : 3.0) }));
   },
+
   stop() {
     this.live.forEach(n => { try { n.stop(); } catch (e) {} });
-    this.live = [];
+    this.live = []; this.map = null;
   },
-  schedule(fromSec) {
+
+  schedule() {
     this.stop();
-    if (!$("t-chord").checked || !NOTES.length) return;
+    const a = $("audio");
+    if (!$("t-chord").checked || !NOTES.length || a.paused) return;
+
+    // 先把 buffer 烘完（首次会阻塞一两百毫秒），**之后**再读时钟。
+    // 反过来的话烘焙期间音频已经往前走了，合成器却按旧时间排，直接晚一截。
     this.ensure();
     if (this.ctx.state === "suspended") this.ctx.resume();
-    const t0 = this.ctx.currentTime + 0.06;   // 留一点调度余量
+
+    const rate = a.playbackRate || 1;
+    const LEAD = 0.05;                       // 调度余量，两个时钟同时推后，不产生偏移
+    const A0 = a.currentTime + LEAD * rate;  // 这一刻的音频时间
+    const T0 = this.ctx.currentTime + LEAD;  // 对应的上下文时间
+    this.map = { A0, T0, rate };
+
+    const toCtx = x => T0 + (x - A0) / rate; // 音频时刻 → 上下文时刻
 
     for (const n of NOTES) {
-      if (n.end <= fromSec) continue;
-      const start = t0 + Math.max(n.start - fromSec, 0);
-      const end = t0 + (n.end - fromSec);
+      if (n.end <= A0) continue;
+
+      let when = toCtx(n.start);
+      const end = toCtx(n.end);
 
       // 选最近的基准音，变调不超过 ±6 个半音
       let best = this.buffers[0];
@@ -267,19 +284,29 @@ const Synth = {
       const src = this.ctx.createBufferSource(), env = this.ctx.createGain();
       src.buffer = best.buf;
       src.playbackRate.value = Math.pow(2, (n.pitch - best.pitch) / 12);
-      // 音符从中途开始时，跳过对应的已衰减部分
-      const offset = Math.max(fromSec - n.start, 0) * src.playbackRate.value;
+
+      // 已经开始的音符：从缓冲区中途切入，跳过已衰减的部分
+      let offset = 0;
+      if (when < T0) { offset = (T0 - when) * src.playbackRate.value; when = T0; }
 
       const peak = (n.velocity / 127) * (n.pitch < 48 ? 0.9 : 0.6);
-      env.gain.setValueAtTime(peak, start);
-      // 到点后 120ms 阻尼收尾，模拟松开踏板/止音器落下，也让和弦边界干净
-      env.gain.setTargetAtTime(0.0001, Math.max(end - 0.05, start + 0.02), 0.05);
+      env.gain.setValueAtTime(peak, when);
+      // 到点后阻尼收尾，模拟止音器落下，也让和弦边界干净
+      env.gain.setTargetAtTime(0.0001, Math.max(end - 0.05, when + 0.02), 0.05);
 
       src.connect(env); env.connect(this.gain);
-      src.start(start, offset);
+      src.start(when, offset);
       src.stop(end + 0.35);
       this.live.push(src);
     }
+  },
+
+  /* 漂移自愈：<audio> 和 AudioContext 是两套独立时钟，长时间播放会分家。
+     每帧按对齐关系反推「现在应该是音频的第几秒」，和实际值差太多就重排。 */
+  drift() {
+    if (!this.map || !this.ctx) return 0;
+    const { A0, T0, rate } = this.map;
+    return $("audio").currentTime - (A0 + (this.ctx.currentTime - T0) * rate);
   },
 };
 
@@ -359,7 +386,6 @@ function buildRoll() {
   g.onclick = e => {
     const x = e.clientX - g.getBoundingClientRect().left;
     $("audio").currentTime = Math.max(x / PPS, 0);
-    if (!$("audio").paused) Synth.schedule($("audio").currentTime);
   };
   $("roll-info").textContent = `${NOTES.length} 个音块　${(PPS).toFixed(0)} px/秒`;
 }
@@ -388,6 +414,8 @@ function loop() {
   if (!a.paused) {
     const sc = $("roll"), x = t * PPS;
     if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - GUTTER - 120) sc.scrollLeft = x - 150;
+    // 两套时钟跑久了会分家，差超过 50ms 就重排一次
+    if (Math.abs(Synth.drift()) > 0.05) Synth.schedule();
   }
   requestAnimationFrame(loop);
 }
@@ -396,9 +424,12 @@ function loop() {
 $("t-song").onchange = () => { $("audio").muted = !$("t-song").checked; };
 $("v-song").oninput = e => { $("audio").volume = e.target.value / 100; $("l-song").textContent = e.target.value + "%"; };
 $("t-chord").onchange = () => {
-  $("l-chord").textContent = $("v-chord").value + "%";
-  if ($("t-chord").checked && !$("audio").paused) Synth.schedule($("audio").currentTime);
-  else Synth.stop();
+  if ($("t-chord").checked) {
+    // 勾选是用户手势，正好趁这时把 buffer 烘完（首次要一两百毫秒），
+    // 免得等到按播放时才烘、开头静音一截
+    Synth.ensure();
+    Synth.schedule();
+  } else Synth.stop();
 };
 $("v-chord").oninput = e => {
   $("l-chord").textContent = e.target.value + "%";
@@ -406,11 +437,14 @@ $("v-chord").oninput = e => {
 };
 
 const audio = $("audio");
-audio.addEventListener("play", () => Synth.schedule(audio.currentTime));
+// 用 playing 而不是 play：play 在实际出声之前就触发，此时 currentTime 还没开始走，
+// 拿它去对齐会偏一截。playing 表示真的开始播了。
+audio.addEventListener("playing", () => Synth.schedule());
 audio.addEventListener("pause", () => Synth.stop());
 audio.addEventListener("seeking", () => Synth.stop());
-audio.addEventListener("seeked", () => { if (!audio.paused) Synth.schedule(audio.currentTime); });
-audio.addEventListener("ratechange", () => { if (!audio.paused) Synth.schedule(audio.currentTime); });
+audio.addEventListener("seeked", () => Synth.schedule());
+audio.addEventListener("ratechange", () => Synth.schedule());
+audio.addEventListener("waiting", () => Synth.stop());   // 缓冲卡顿时先停，恢复后靠 playing 重排
 
 $("zoom-in").onclick = () => { PPS = Math.min(PPS * 1.5, 600); buildRoll(); };
 $("zoom-out").onclick = () => { PPS = Math.max(PPS / 1.5, 8); buildRoll(); };
