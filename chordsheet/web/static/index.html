@@ -192,11 +192,14 @@ audio { width: 100%; margin-top: 10px; }
           <button id="ed-min">小三和弦</button>
           <button id="ed-none">无和弦</button>
           <span class="sep"></span>
+          <button id="ed-clear">清空音块</button>
+          <span class="sep"></span>
           <button id="ed-split">在播放头处拆分</button>
           <button id="ed-merge">与前一段合并</button>
           <span class="sep"></span>
           <button id="ed-undo">撤销</button>
-          <button id="ed-reset">恢复识别结果</button>
+          <button id="ed-restore-one">恢复本段</button>
+          <button id="ed-reset">全部恢复</button>
           <span class="note-txt" id="ed-hint" style="margin:0"></span>
         </div>
       </div>
@@ -874,7 +877,8 @@ const Edit = {
       $("ed-title").textContent = "未选中";
       $("ed-range").textContent = "在上方卷帘里点任意位置，选中那一刻的和弦";
       $("ed-roots").innerHTML = "";
-      ["ed-maj", "ed-min", "ed-none", "ed-split", "ed-merge"].forEach(id => { $(id).disabled = true; });
+      ["ed-maj", "ed-min", "ed-none", "ed-split", "ed-merge", "ed-clear", "ed-restore-one"]
+        .forEach(id => { $(id).disabled = true; });
       $("ed-hint").textContent = "";
       return;
     }
@@ -896,6 +900,12 @@ const Edit = {
     // 编辑模式才放开改动操作。单击只选中和试听，双击才进编辑——
     // 否则双击等于没用，两种意图也分不开。
     ["ed-maj", "ed-min", "ed-none"].forEach(id => { $(id).disabled = !this.mode; });
+    $("ed-clear").disabled = !this.mode || !c.pitches.length;
+    const src = this.originalAt(c);
+    $("ed-restore-one").disabled = !this.mode || !src;
+    $("ed-restore-one").title = src
+      ? `恢复成识别结果 ${prettyChord(triadLabel(src.pitches))}（只换音高，长度保持不变）`
+      : "这段和识别结果没有重叠";
     const prev = CELLS[this.sel - 1];
     $("ed-merge").disabled = !this.mode || !prev;
     $("ed-merge").title = "";
@@ -935,6 +945,43 @@ const Edit = {
     this.select(this.sel);
   },
 
+  /* 清空这一格的音块。格子保留、标签变 N.C.——删格子会打乱时间轴结构，
+     真要删整段用「与前一段合并」。 */
+  clearNotes() {
+    const c = CELLS[this.sel];
+    if (!c || !c.pitches.length) return;
+    this.snapshot();
+    c.pitches = [];
+    this.rebuild();
+    this.select(CELLS.indexOf(c));
+  },
+
+  /* 找识别结果里和这一格重叠最多的那段。
+     格子可能被拖过边界、拆过合过，所以按重叠时长匹配而不是按下标——
+     下标在编辑之后早就对不上了。 */
+  originalAt(cell) {
+    let best = null, most = 0;
+    for (const o of JSON.parse(this.original || "[]")) {
+      const overlap = Math.min(cell.end, o.end) - Math.max(cell.start, o.start);
+      if (overlap > most) { most = overlap; best = o; }
+    }
+    return best;
+  },
+
+  /* 只把这一格恢复成识别结果。
+     **只恢复音高，保留当前的时间范围**——你调好的长度不该因为想换回原和弦
+     就被打回去。要连长度一起还原就用「全部恢复」。 */
+  restoreOne() {
+    const c = CELLS[this.sel];
+    const src = c && this.originalAt(c);
+    if (!src) return;
+    this.snapshot();
+    c.pitches = [...(src.pitches || [])];
+    this.rebuild();
+    this.select(CELLS.indexOf(c));
+    this.play(c.pitches);
+  },
+
   merge() {
     const i = this.sel, c = CELLS[i], prev = CELLS[i - 1];
     if (!c || !prev) return;
@@ -972,6 +1019,8 @@ $("ed-min").onclick = () => {
   Edit.setChord(`${r}:min`);
 };
 $("ed-none").onclick = () => Edit.setChord("N");
+$("ed-clear").onclick = () => Edit.clearNotes();
+$("ed-restore-one").onclick = () => Edit.restoreOne();
 $("ed-split").onclick = () => Edit.split();
 $("ed-merge").onclick = () => Edit.merge();
 $("ed-undo").onclick = () => Edit.undo();
