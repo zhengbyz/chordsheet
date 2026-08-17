@@ -692,11 +692,12 @@ const Edit = {
     document.body.classList.add("dragging");
 
     const min = this.minSpan();
-    const rect = $("grid").getBoundingClientRect();
     const lo = (side === "r" ? cell.start : other.start) + min;
     const hi = (side === "r" ? other.end : cell.end) - min;
 
     const move = ev => {
+      // 每次都重新取 rect：播放中卷帘会自动滚动，缓存下来的会过期、拖动整体偏移
+      const rect = $("grid").getBoundingClientRect();
       const t = Math.min(Math.max(this.snapHalf((ev.clientX - rect.left) / PPS), lo), hi);
       const boundary = side === "r" ? cell.end : cell.start;
       if (Math.abs(t - boundary) < 1e-6) return;   // 量化后没变化就不重绘
@@ -723,6 +724,9 @@ const Edit = {
     this.mode = on;
     $("roll").style.outline = on ? "2px solid var(--accent)" : "";
     $("mode-tag").textContent = on ? "编辑模式：拖和弦块两边改长度，Esc 退出" : "";
+    // 必须重绘卷帘：拖动手柄是 buildRoll 里按 Edit.mode 生成的，
+    // 只调 paint() 只会更新下方面板，手柄根本不会被创建。
+    buildRoll();
     this.paint();
   },
 
