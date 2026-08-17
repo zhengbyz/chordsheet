@@ -39,3 +39,9 @@ jobs:
 
       - name: Unit tests
         run: python -m pytest -q
+
+      # 前端是单个 HTML，没有构建步骤也没有 node，所以自己抓最常犯的错：
+      # 引用了不存在的函数、元素 id、对象成员。曾经因为一次字符串替换没匹配上
+      # 而只剩调用点没有定义，界面静默失效、白查两轮。
+      - name: Frontend static check
+        run: python scripts/check_frontend.py

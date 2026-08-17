@@ -233,7 +233,23 @@ window.addEventListener("unhandledrejection", e => showError(String(e.reason)));
 
 const isBlack = p => BLACK.includes(((p % 12) + 12) % 12);
 const yOf = p => (HIGH - p) * KH;                    // 高音在上
-const prettyChord = l => !l || l === "N" ? "N.C." : l.replace(":maj","").replace(":min","m");
+const prettyChord = l => !l ? "" : l === "N" ? "N.C." : l === "?" ? "?"
+  : l.replace(":maj","").replace(":min","m");
+
+/* 音高集合 → 和弦标签。必须和后端 chordsheet/chords.py 的 triad_label 一致：
+   音级集合**精确匹配**某个三和弦才给名字，否则 "?"。
+   不用最近邻匹配——那会让标签撒谎（C-E-G 加个 G# 仍显示 C）。 */
+function triadLabel(pitches) {
+  const pcs = new Set((pitches || []).map(p => ((p % 12) + 12) % 12));
+  if (!pcs.size) return "N";
+  for (let root = 0; root < 12; root++) {
+    for (const [q, iv] of [["maj", [0, 4, 7]], ["min", [0, 3, 7]]]) {
+      const want = new Set(iv.map(i => (root + i) % 12));
+      if (want.size === pcs.size && [...want].every(x => pcs.has(x))) return `${PC[root]}:${q}`;
+    }
+  }
+  return "?";
+}
 const noteName = p => PC[((p % 12) + 12) % 12] + (Math.floor(p / 12) - 1);
 
 /* ---------- 上传 ---------- */
@@ -399,7 +415,12 @@ const Synth = {
 
 /* ---------- 渲染 ---------- */
 function render(d) {
-  DATA = d; CELLS = d.chords.cells; BARLINES = d.chords.bar_lines; NOTES = d.notes || [];
+  DATA = d;
+  // 拷一份而不是直接引用：编辑会改这些对象，直接改 d 会让「恢复识别结果」失效。
+  // pitches 兜底成空数组，缺字段时后面 rebuild 会从 chord 补出来。
+  CELLS = d.chords.cells.map(c => ({ ...c, pitches: c.pitches ? [...c.pitches] : [] }));
+  BARLINES = d.chords.bar_lines;
+  NOTES = d.notes || [];
   $("result").style.display = "block";
   $("audio").src = d.audio_url; $("midi-dl").href = d.midi_url;
   document.title = d.filename + " — chordsheet";
