@@ -79,10 +79,11 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 .chip.nd { color: var(--warn); }
 /* 音高集合不构成任何已知三和弦：老实标出来，不硬套一个最接近的名字 */
 .chip.unk { color: var(--bad); font-weight: 700; }
+/* 格子之间的空隙 = 这里没有和弦。画出来才看得见，否则像渲染坏了 */
+.gap { position: absolute; top: 0; height: 26px; background: repeating-linear-gradient(45deg, transparent, transparent 4px, var(--line) 4px, var(--line) 8px); }
 .chip.sel { background: color-mix(in srgb, var(--accent) 26%, var(--panel)); box-shadow: inset 0 0 0 2px var(--accent); }
 .chip { cursor: pointer; }
-/* 拖动手柄：只在编辑模式、且该边界是小节内部边界时出现。
-   贴着小节线的边界不可动——格子按小节切分，动它会破坏小节结构。 */
+/* 拖动手柄：编辑模式下两边都有。和弦可以跨小节，也可以和邻居留空隙。 */
 .chip .h { position: absolute; top: 0; width: 7px; height: 26px; cursor: ew-resize; z-index: 1; }
 .chip .h.l { left: 0; } .chip .h.r { right: 0; }
 .chip .h::after { content: ""; position: absolute; top: 4px; bottom: 4px; left: 2px; width: 3px;
@@ -210,6 +211,25 @@ const KH = 11, GUTTER = 58;                          // 每键高度、左侧键
 const RULER = 20, STRIP = 26, HEAD = RULER + STRIP;  // 时间轴、和弦条、两者合计
 const $ = id => document.getElementById(id);
 let DATA=null, CELLS=[], BARLINES=[], NOTES=[], PPS=90;
+
+/* JS 一旦抛异常，界面就会静默失效——按钮没反应、音块消失，但看不出原因。
+   把错误显示出来，省掉「猜哪里坏了」这一轮。 */
+function showError(msg) {
+  let box = document.getElementById("jserr");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "jserr";
+    box.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:99;"
+      + "background:var(--bad);color:#fff;padding:10px 14px;border-radius:8px;"
+      + "font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-height:36vh;overflow:auto;cursor:pointer";
+    box.title = "点击关闭";
+    box.onclick = () => box.remove();
+    document.body.appendChild(box);
+  }
+  box.textContent = "界面出错（点击关闭）：\n" + msg;
+}
+window.addEventListener("error", e => showError(`${e.message}\n${e.filename}:${e.lineno}`));
+window.addEventListener("unhandledrejection", e => showError(String(e.reason)));
 
 const isBlack = p => BLACK.includes(((p % 12) + 12) % 12);
 const yOf = p => (HIGH - p) * KH;                    // 高音在上
@@ -452,18 +472,24 @@ function buildRoll() {
   CELLS.forEach((c, i) => {
     const w = (c.end - c.start) * PPS;
     const cls = c.chord === "?" ? " unk" : (c.diatonic || c.chord === "N" ? "" : " nd");
-    // 手柄只在编辑模式出现，且只给小节内部边界——贴小节线的边界不可动
-    const prev = CELLS[i - 1], next = CELLS[i + 1];
-    let handles = "";
-    if (Edit.mode && w > 16) {
-      if (prev && prev.bar === c.bar) handles += `<div class="h l" data-e="l"></div>`;
-      if (next && next.bar === c.bar) handles += `<div class="h r" data-e="r"></div>`;
-    }
+    // 两边都给手柄。和弦可以跨小节，也可以和邻居之间留空隙——
+    // 小节线不再是编辑的约束，只是识别时的切分依据。
+    const handles = Edit.mode && w > 14
+      ? `<div class="h l" data-e="l"></div><div class="h r" data-e="r"></div>` : "";
     html += `<div class="chip${cls}" data-c="${i}"`
           + ` style="left:${c.start * PPS}px;width:${Math.max(w - 1, 2)}px"`
           + ` title="第 ${c.bar} 小节　${prettyChord(c.chord)}">`
           + `${w > 30 ? prettyChord(c.chord) : ""}${handles}</div>`;
   });
+  // 空隙（格子之间没有和弦的区间）画成条纹，否则看着像渲染出错
+  let cursor = 0;
+  for (const c of CELLS) {
+    if (c.start - cursor > 1e-3) {
+      html += `<div class="gap" style="left:${cursor * PPS}px;width:${(c.start - cursor) * PPS}px"`
+            + ` title="无和弦"></div>`;
+    }
+    cursor = Math.max(cursor, c.end);
+  }
   html += `</div>`;
   for (const b of BARLINES) html += `<div class="barnum" style="left:${b.start * PPS}px">${b.index}</div>`;
   // 音块
@@ -626,12 +652,20 @@ const Edit = {
     return (table[deg] || []).includes(quality);
   },
 
+  /* 格子起点落在哪个小节。跨小节编辑之后 bar 不再是约束，只用于显示。 */
+  barOf(t) {
+    const b = BARLINES.find(x => t >= x.start - 1e-6 && t < x.end);
+    return b ? b.index : (BARLINES.length ? BARLINES[BARLINES.length - 1].index : 0);
+  },
+
   /* 从 CELLS 重建音块与标签。
      **音高集合是事实来源**：标签由它派生，音块也由它生成，两者不会打架。
      规则和后端 pitch_cells_to_notes 一致：每格完整重触发，音块横跨整格。 */
   rebuild() {
     NOTES = [];
+    CELLS.sort((a, b) => a.start - b.start);
     for (const c of CELLS) {
+      c.bar = this.barOf(c.start);                         // 跨小节后按起点归属
       if (!c.pitches) c.pitches = this.notesOf(c.chord);   // 兼容旧数据
       c.pitches = [...new Set(c.pitches)].sort((a, b) => a - b);
       c.chord = triadLabel(c.pitches);                     // 标签始终反映实际音高
@@ -674,6 +708,25 @@ const Edit = {
     return g.length > 1 ? (g[1] - g[0]) * 0.9 : 0.1;   // 至少一个半拍
   },
 
+  /* 改一个格子的边界。
+     格子是**独立区间**：拖短一个不会让邻居变长，中间留出空隙（空隙 = 无和弦）。
+     只有拖长到压上邻居时，邻居才让位——被完全覆盖的整段删除，部分重叠的裁剪。
+     不受小节线约束，一个和弦可以跨小节。识别结果仍保证每小节开头有和弦。 */
+  resize(cell, side, t) {
+    const min = this.minSpan();
+    if (side === "r") cell.end = Math.max(t, cell.start + min);
+    else cell.start = Math.min(t, cell.end - min);
+
+    CELLS = CELLS.filter(other => {
+      if (other === cell) return true;
+      if (other.end <= cell.start + 1e-6 || other.start >= cell.end - 1e-6) return true;
+      if (other.start >= cell.start - 1e-6 && other.end <= cell.end + 1e-6) return false;
+      if (other.start < cell.start) other.end = cell.start;
+      else other.start = cell.end;
+      return other.end - other.start > 1e-6;
+    });
+  },
+
   /* 拖动和弦块边界。
      监听挂在 window 上而不是手柄本身：拖动过程中 buildRoll 会替换整个网格的
      innerHTML，手柄元素随之消失，挂在它上面的监听和指针捕获都会断掉。
@@ -682,8 +735,7 @@ const Edit = {
   dragging: false,
   beginDrag(event, index, side) {
     const cell = CELLS[index];
-    const other = side === "r" ? CELLS[index + 1] : CELLS[index - 1];
-    if (!cell || !other || other.bar !== cell.bar) return;
+    if (!cell) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -691,18 +743,13 @@ const Edit = {
     this.dragging = true;
     document.body.classList.add("dragging");
 
-    const min = this.minSpan();
-    const lo = (side === "r" ? cell.start : other.start) + min;
-    const hi = (side === "r" ? other.end : cell.end) - min;
-
     const move = ev => {
       // 每次都重新取 rect：播放中卷帘会自动滚动，缓存下来的会过期、拖动整体偏移
       const rect = $("grid").getBoundingClientRect();
-      const t = Math.min(Math.max(this.snapHalf((ev.clientX - rect.left) / PPS), lo), hi);
-      const boundary = side === "r" ? cell.end : cell.start;
-      if (Math.abs(t - boundary) < 1e-6) return;   // 量化后没变化就不重绘
-      if (side === "r") { cell.end = t; other.start = t; }
-      else { cell.start = t; other.end = t; }
+      const raw = (ev.clientX - rect.left) / PPS;
+      const t = Math.min(Math.max(this.snapHalf(raw), 0), DATA.duration);
+      if (Math.abs(t - (side === "r" ? cell.end : cell.start)) < 1e-6) return;
+      this.resize(cell, side, t);
       this.rebuild();
     };
     const up = () => {
@@ -711,7 +758,7 @@ const Edit = {
       document.body.classList.remove("dragging");
       this.dragging = false;
       this.rebuild();                              // 这次会把试听一起重排
-      this.select(index);
+      this.select(CELLS.indexOf(cell));            // 索引可能因删除邻居而变
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -773,8 +820,8 @@ const Edit = {
     // 否则双击等于没用，两种意图也分不开。
     ["ed-maj", "ed-min", "ed-none"].forEach(id => { $(id).disabled = !this.mode; });
     const prev = CELLS[this.sel - 1];
-    $("ed-merge").disabled = !this.mode || !prev || prev.bar !== c.bar;
-    $("ed-merge").title = prev && prev.bar !== c.bar ? "跨小节不能合并——格子按小节切分" : "";
+    $("ed-merge").disabled = !this.mode || !prev;
+    $("ed-merge").title = "";
     const t = $("audio").currentTime;
     const canSplit = t > c.start + 0.05 && t < c.end - 0.05;
     $("ed-split").disabled = !this.mode || !canSplit;
@@ -797,9 +844,9 @@ const Edit = {
     const c = CELLS[this.sel];
     if (!c) return;
     const t = $("audio").currentTime;
-    const beats = DATA.beats.times.filter(x => x > c.start + 1e-6 && x < c.end - 1e-6);
-    if (!beats.length) { $("ed-hint").textContent = "这段里没有可切分的拍点"; return; }
-    const at = beats.reduce((best, x) => Math.abs(x - t) < Math.abs(best - t) ? x : best, beats[0]);
+    const cand = this.halfBeats().filter(x => x > c.start + 1e-6 && x < c.end - 1e-6);
+    if (!cand.length) { $("ed-hint").textContent = "这段里没有可切分的半拍位置"; return; }
+    const at = cand.reduce((best, x) => Math.abs(x - t) < Math.abs(best - t) ? x : best, cand[0]);
 
     this.snapshot();
     CELLS.splice(this.sel, 1,
@@ -810,7 +857,7 @@ const Edit = {
 
   merge() {
     const i = this.sel, c = CELLS[i], prev = CELLS[i - 1];
-    if (!c || !prev || prev.bar !== c.bar) return;
+    if (!c || !prev) return;
     this.snapshot();
     CELLS.splice(i - 1, 2, { ...prev, end: c.end });
     this.rebuild();
