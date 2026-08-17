@@ -70,6 +70,8 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 .gl.bar { background: var(--grid-bar); width: 1px; }
 .note { position: absolute; background: var(--note); border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
 .note.lit { background: var(--note-lit); }
+body.editmode .note { cursor: pointer; }
+body.editmode .note:hover { outline: 2px solid var(--bad); outline-offset: 1px; }
 /* 时间轴：拖动改播放位置。和弦条一起 sticky 在顶部，横向跟着滚。 */
 .ruler { position: sticky; top: 0; z-index: 2; height: 20px; background: var(--panel); border-bottom: 1px solid var(--line); cursor: ew-resize; }
 .ruler .tk { position: absolute; top: 0; height: 20px; border-left: 1px solid var(--line); font-size: 9px; color: var(--muted); padding-left: 3px; line-height: 20px; }
@@ -90,7 +92,6 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
   background: var(--accent); border-radius: 2px; opacity: .55; }
 .chip .h:hover::after { opacity: 1; }
 body.dragging { cursor: ew-resize; user-select: none; }
-.note.edited { box-shadow: inset 0 0 0 1px rgba(0,0,0,.18), 0 0 0 1px var(--accent); }
 
 /* ---- 编辑面板 ---- */
 #editor { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -515,7 +516,8 @@ function buildRoll() {
   for (const b of BARLINES) html += `<div class="barnum" style="left:${b.start * PPS}px">${b.index}</div>`;
   // 音块
   NOTES.forEach((n, i) => {
-    html += `<div class="note" data-i="${i}" style="left:${n.start * PPS}px;top:${yOf(n.pitch) + HEAD + 1}px;`
+    html += `<div class="note" data-i="${i}" data-p="${n.pitch}" data-s="${n.start}"`
+          + ` style="left:${n.start * PPS}px;top:${yOf(n.pitch) + HEAD + 1}px;`
           + `width:${Math.max((n.end - n.start) * PPS - 1, 2)}px;height:${KH - 2}px" title="${noteName(n.pitch)}"></div>`;
   });
   g.innerHTML = html;
@@ -542,8 +544,20 @@ function buildRoll() {
       Edit.audition(i);
       return;
     }
-    const t = timeAt(e);                         // 卷帘区域 = 跳转播放 + 选中该时刻的和弦
-    const i = cellAt(t);
+    const rect = g.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const t = timeAt(e);
+
+    /* 编辑模式下卷帘区域用来加/删音块，不再跳转播放——
+       两种意图占同一块地方分不开。跳转改用顶部时间轴。 */
+    if (Edit.mode && y >= HEAD) {
+      const el = e.target.closest(".note");
+      if (el) Edit.removeNote(+el.dataset.p, +el.dataset.s);
+      else Edit.addNote(t, HIGH - Math.floor((y - HEAD) / KH));
+      return;
+    }
+
+    const i = cellAt(t);                         // 非编辑模式：跳转播放 + 选中和弦
     if (i >= 0) Edit.select(i);
     $("audio").currentTime = t;
   };
@@ -729,6 +743,40 @@ const Edit = {
     return g.length > 1 ? (g[1] - g[0]) * 0.9 : 0.1;   // 至少一个半拍
   },
 
+  /* 在某个时刻的某个音高上加一个音块。
+     音块的时长由所属格子决定，不能单独调——这是「拖和弦块改长度」的另一面。
+     点在空隙上则新建一个格子，占一个半拍。 */
+  addNote(t, pitch) {
+    const found = CELLS.findIndex(c => t >= c.start && t < c.end);
+    this.snapshot();
+    if (found < 0) {
+      const grid = this.halfBeats();
+      let lo = 0, hi = DATA.duration;
+      for (const x of grid) if (x <= t + 1e-6) lo = x;
+      for (const x of grid) if (x > t + 1e-6) { hi = x; break; }
+      CELLS.push({ bar: this.barOf(lo), start: lo, end: hi, pitches: [pitch] });
+    } else if (!CELLS[found].pitches.includes(pitch)) {
+      CELLS[found].pitches.push(pitch);
+    }
+    this.rebuild();
+    this.select(CELLS.findIndex(c => t >= c.start && t < c.end));
+  },
+
+  /* 删掉一个音块。按音高 + 起点定位所属格子，不用 NOTES 的下标——
+     每次 rebuild 都会重排 NOTES，下标随时失效。
+     删空之后格子保留（标签变 N.C.），而不是整段消失：静默删格子会让人
+     以为界面出错了。 */
+  removeNote(pitch, start) {
+    const cell = CELLS.find(
+      c => Math.abs(c.start - start) < 1e-6 && c.pitches.includes(pitch)
+    );
+    if (!cell) return;
+    this.snapshot();
+    cell.pitches = cell.pitches.filter(p => p !== pitch);
+    this.rebuild();
+    this.select(CELLS.indexOf(cell));
+  },
+
   /* 改一个格子的边界。
      格子是**独立区间**：拖短一个不会让邻居变长，中间留出空隙（空隙 = 无和弦）。
      只有拖长到压上邻居时，邻居才让位——被完全覆盖的整段删除，部分重叠的裁剪。
@@ -791,7 +839,10 @@ const Edit = {
   setMode(on) {
     this.mode = on;
     $("roll").style.outline = on ? "2px solid var(--accent)" : "";
-    $("mode-tag").textContent = on ? "编辑模式：拖和弦块两边改长度，Esc 退出" : "";
+    document.body.classList.toggle("editmode", on);
+    $("mode-tag").textContent = on
+      ? "编辑模式：拖和弦块两边改长度｜点卷帘加音、点音块删除｜跳转播放用顶部时间轴｜Esc 退出"
+      : "";
     // 必须重绘卷帘：拖动手柄是 buildRoll 里按 Edit.mode 生成的，
     // 只调 paint() 只会更新下方面板，手柄根本不会被创建。
     buildRoll();
