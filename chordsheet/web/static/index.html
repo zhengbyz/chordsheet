@@ -456,20 +456,29 @@ function buildRoll() {
   const timeAt = e => Math.max((e.clientX - g.getBoundingClientRect().left) / PPS, 0);
   const cellAt = t => CELLS.findIndex(c => t >= c.start && t < c.end);
 
+  /* 用 closest() 判断点到了哪个元素，不做纵坐标运算。
+     和弦条是 sticky 的，视觉位置和网格坐标在滚动后会差一个 scrollTop——
+     按坐标判断会导致「滚动之后点和弦块变成跳转播放」这种时好时坏的 bug。 */
   g.onclick = e => {
-    const y = e.clientY - g.getBoundingClientRect().top;
-    if (y < RULER) return;                       // 时间轴由拖动逻辑单独处理
-    const t = timeAt(e), i = cellAt(t);
+    if (e.target.closest(".ruler")) return;      // 时间轴由拖动逻辑单独处理
+    const chip = e.target.closest(".chip");
+    if (chip) {                                  // 单击和弦块 = 选中 + 试听，不跳转播放
+      const i = +chip.dataset.c;
+      Edit.select(i);
+      Edit.audition(i);
+      return;
+    }
+    const t = timeAt(e);                         // 卷帘区域 = 跳转播放 + 选中该时刻的和弦
+    const i = cellAt(t);
     if (i >= 0) Edit.select(i);
-    if (y < HEAD) { Edit.audition(i); return; }  // 单击和弦块 = 试听，不跳转播放
-    $("audio").currentTime = t;                  // 卷帘区域 = 跳转播放
+    $("audio").currentTime = t;
   };
 
   g.ondblclick = e => {
-    const y = e.clientY - g.getBoundingClientRect().top;
-    if (y < RULER || y >= HEAD) return;
-    const i = cellAt(timeAt(e));
-    if (i >= 0) { Edit.select(i); Edit.setMode(true); }   // 双击和弦块 = 进编辑模式
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    Edit.select(+chip.dataset.c);
+    Edit.setMode(true);                          // 双击和弦块 = 进编辑模式
   };
 
   // 时间轴拖动：按下即跳转，拖动跟随，松手结束
@@ -641,25 +650,32 @@ const Edit = {
       $("ed-hint").textContent = "";
       return;
     }
-    ["ed-maj", "ed-min", "ed-none"].forEach(id => { $(id).disabled = false; });
     $("ed-title").textContent = prettyChord(c.chord);
     $("ed-range").textContent = `第 ${c.bar} 小节　${c.start.toFixed(2)}–${c.end.toFixed(2)}s`
       + `　${c.diatonic ? "调内" : (c.chord === "N" ? "" : "调外")}`;
     const cur = c.chord.includes(":") ? c.chord.split(":")[0] : null;
     $("ed-roots").innerHTML = PC.map(p =>
-      `<button data-r="${p}" class="${BLACK.includes(PC.indexOf(p)) ? "blk" : ""}${p === cur ? " on" : ""}">${p}</button>`).join("");
+      `<button data-r="${p}" class="${BLACK.includes(PC.indexOf(p)) ? "blk" : ""}${p === cur ? " on" : ""}"`
+      + `${this.mode ? "" : " disabled"}>${p}</button>`).join("");
     $("ed-roots").querySelectorAll("button").forEach(b => {
       b.onclick = () => {
         const q = CELLS[this.sel].chord.includes(":") ? CELLS[this.sel].chord.split(":")[1] : "maj";
         this.setChord(`${b.dataset.r}:${q}`);
       };
     });
+
+    // 编辑模式才放开改动操作。单击只选中和试听，双击才进编辑——
+    // 否则双击等于没用，两种意图也分不开。
+    ["ed-maj", "ed-min", "ed-none"].forEach(id => { $(id).disabled = !this.mode; });
     const prev = CELLS[this.sel - 1];
-    $("ed-merge").disabled = !prev || prev.bar !== c.bar;
-    $("ed-merge").title = $("ed-merge").disabled ? "跨小节不能合并——格子按小节切分" : "";
+    $("ed-merge").disabled = !this.mode || !prev || prev.bar !== c.bar;
+    $("ed-merge").title = prev && prev.bar !== c.bar ? "跨小节不能合并——格子按小节切分" : "";
     const t = $("audio").currentTime;
-    $("ed-split").disabled = !(t > c.start + 0.05 && t < c.end - 0.05);
-    $("ed-hint").textContent = $("ed-split").disabled ? "把播放头停在这段中间才能拆分" : "";
+    const canSplit = t > c.start + 0.05 && t < c.end - 0.05;
+    $("ed-split").disabled = !this.mode || !canSplit;
+    $("ed-hint").textContent = !this.mode
+      ? "双击和弦块进入编辑模式"
+      : (canSplit ? "" : "把播放头停在这段中间才能拆分");
   },
 
   setChord(chord) {
