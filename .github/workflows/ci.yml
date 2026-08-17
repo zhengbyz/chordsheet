@@ -21,11 +21,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # 单测只需要 numpy + pytest。madmom 和 librosa 的 import 都写在函数内部
-      # 懒加载，所以 193 个纯函数单测不用装那两个重量级依赖——CI 因此只要几十秒，
-      # 也不用在 CI 里重演 madmom 那套 --no-build-isolation 的安装折腾。
+      # 绝大多数单测是纯函数，只要 numpy。但有两组测试真的需要额外依赖：
+      #   librosa —— fill_no_chord_cells 要算 chroma 才能给空拍补和弦
+      #   mido    —— 验证写出的 MIDI 能被读回来、delta time 不为负
+      # 这两组不能用 importorskip 打发过去：那样 CI 是绿的但测试根本没跑，
+      # 比红着更危险。装上让它们真跑。
+      #
+      # madmom 仍然不装：它需要 --no-build-isolation 且只能从 git 主分支装，
+      # 而没有任何单测会调用它（节拍与和弦识别的 import 都在函数内部懒加载）。
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip numpy pytest ruff
+        run: python -m pip install --upgrade pip numpy pytest ruff librosa mido
 
       - name: Lint
         run: |

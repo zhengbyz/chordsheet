@@ -217,8 +217,11 @@ def test_written_midi_is_readable_and_ordered(tmp_path) -> None:
     """写出的文件要能被读回来，且 delta time 不为负。
 
     音符是重叠的，按音符顺序直接写会算错 delta——必须先展平成事件再排序。
+
+    这里直接 import mido 而不用 importorskip：缺依赖时应当报错，
+    而不是悄悄跳过——那样 CI 是绿的但这条断言根本没跑，比红着更危险。
     """
-    mido = pytest.importorskip("mido")
+    import mido
 
     cells = [
         ChordCell(1, 0.0, 2.0, "C:maj"),
