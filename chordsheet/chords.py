@@ -31,6 +31,9 @@ from chordsheet.key import PITCH_CLASSES
 
 ROUTES = ("cnn", "deepchroma")
 NO_CHORD = "N"
+# 编辑后音高集合不构成任何已知三和弦时的标签。
+# 与其硬套一个最接近的名字（那是撒谎），不如老实说不知道。
+UNKNOWN_CHORD = "?"
 
 # 自然音级三和弦，键为相对主音的半音数，值为和弦性质。
 # vii 级在大调是减三和弦、ii 级在小调也是减三和弦，madmom 的词汇表里没有减三和弦，
@@ -206,6 +209,28 @@ def snap_chords_to_beats(
         else:
             cells.append(ChordCell(bar, start, stop, label))
     return cells
+
+
+def triad_label(pitches) -> str:
+    """一组 MIDI 音高 → 和弦标签。
+
+    判据是**音级集合精确匹配**：把音高折叠成音级、去重，和 24 个三和弦的音级
+    集合逐一比对。相等才给名字，否则返回 `UNKNOWN_CHORD`。
+
+    这是「音块是事实、标签是投影」的关键一环。用最近邻匹配（best_triad 那种）
+    会让标签撒谎——加一个 G# 到 C-E-G 上，标签仍显示 C，而实际内容已经不是了。
+    宁可显示 `?` 也不给一个错的名字。
+
+    八度和重复音不影响结果：低八度的根音、加倍的五音都折叠到同一个音级。
+    """
+    pcs = frozenset(int(p) % 12 for p in pitches)
+    if not pcs:
+        return NO_CHORD
+    for root in range(12):
+        for quality, intervals in (("maj", (0, 4, 7)), ("min", (0, 3, 7))):
+            if pcs == frozenset((root + i) % 12 for i in intervals):
+                return f"{PITCH_CLASSES[root]}:{quality}"
+    return UNKNOWN_CHORD
 
 
 def best_triad(chroma: np.ndarray) -> str | None:

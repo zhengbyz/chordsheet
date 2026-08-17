@@ -153,7 +153,9 @@ def _analyze(job: Job, meters: tuple[int, ...], min_bpm: float, max_bpm: float) 
                         "start": cell.start,
                         "end": cell.end,
                         "chord": cell.chord,
-                        "notes": chord_notes(cell.chord),
+                        # 音高集合是事实来源，标签由它派生（见 triad_label）。
+                        # 编辑后可能不构成任何三和弦，那时标签就是 "?"。
+                        "pitches": chord_notes(cell.chord),
                         "diatonic": cell.chord != NO_CHORD
                         and is_diatonic(cell.chord, key_result.key),
                     }
@@ -222,24 +224,23 @@ async def status(job_id: str) -> JSONResponse:
 
 @app.post("/api/midi")
 async def midi_from_edits(payload: dict) -> Response:
-    """把编辑后的和弦导出成 MIDI。
+    """把编辑后的内容导出成 MIDI。
+
+    以**音高集合**为准而不是和弦名：编辑后音高可能不构成任何三和弦，
+    那时标签只是个 `?`，从它推导不出音符来。音块是事实，标签是投影。
 
     编辑状态留在前端，服务端不存——刷新页面就回到识别结果，语义清楚，
     也不用管过期任务的清理。前端把当前的格子发过来即可。
     """
-    from chordsheet.chords import ChordCell
-    from chordsheet.midi import cells_to_notes, write_midi
+    from chordsheet.midi import pitch_cells_to_notes, write_midi
 
-    raw = payload.get("cells") or []
-    if not raw:
-        raise HTTPException(400, "没有可导出的和弦")
+    notes = pitch_cells_to_notes(payload.get("cells") or [])
+    if not notes:
+        raise HTTPException(400, "没有可导出的音符")
 
-    cells = [
-        ChordCell(int(c["bar"]), float(c["start"]), float(c["end"]), str(c["chord"])) for c in raw
-    ]
     buffer = io.BytesIO()
     with tempfile.NamedTemporaryFile(suffix=".mid") as tmp:
-        write_midi(cells_to_notes(cells), tmp.name, tempo_bpm=float(payload.get("tempo") or 120))
+        write_midi(notes, tmp.name, tempo_bpm=float(payload.get("tempo") or 120))
         buffer.write(Path(tmp.name).read_bytes())
 
     name = str(payload.get("filename") or "chords")

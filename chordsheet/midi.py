@@ -109,6 +109,27 @@ def cells_to_notes(
     return sorted(notes, key=lambda n: (n.start, n.pitch))
 
 
+def pitch_cells_to_notes(cells) -> list[MidiNote]:
+    """`[{start, end, pitches}]` → 音符。用于编辑后的导出。
+
+    和 `cells_to_notes` 的区别是音高直接给定，不再从和弦名推导——编辑之后
+    音高集合可能不构成任何三和弦，那时标签只是个 `?`，推导不出东西来。
+
+    每格完整重触发，音符横跨整格：这是界面上「音块长度由和弦块决定」的直接体现。
+    最低音当低音声部给更大力度，和 chord_notes 的处理一致。
+    """
+    notes: list[MidiNote] = []
+    for cell in cells:
+        pitches = sorted({int(p) for p in (cell.get("pitches") or [])})
+        start, end = float(cell["start"]), float(cell["end"])
+        if not pitches or end <= start:
+            continue
+        for pitch in pitches:
+            velocity = BASS_VELOCITY if pitch == pitches[0] else DEFAULT_VELOCITY
+            notes.append(MidiNote(pitch, start, end, velocity))
+    return sorted(notes, key=lambda n: (n.start, n.pitch))
+
+
 def write_midi(
     notes: list[MidiNote],
     path,
