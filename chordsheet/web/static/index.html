@@ -70,7 +70,11 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 .gl.bar { background: var(--grid-bar); width: 1px; }
 .note { position: absolute; background: var(--note); border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
 .note.lit { background: var(--note-lit); }
-.strip { position: sticky; top: 0; z-index: 2; height: 26px; }
+/* 时间轴：拖动改播放位置。和弦条一起 sticky 在顶部，横向跟着滚。 */
+.ruler { position: sticky; top: 0; z-index: 2; height: 20px; background: var(--panel); border-bottom: 1px solid var(--line); cursor: ew-resize; }
+.ruler .tk { position: absolute; top: 0; height: 20px; border-left: 1px solid var(--line); font-size: 9px; color: var(--muted); padding-left: 3px; line-height: 20px; }
+.ruler .head { position: absolute; top: 2px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid var(--accent); transform: translateX(-5px); pointer-events: none; }
+.strip { position: sticky; top: 20px; z-index: 2; height: 26px; }
 .chip { position: absolute; top: 0; height: 26px; display: flex; align-items: center; padding: 0 5px; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; border-right: 1px solid var(--line); background: var(--panel); }
 .chip.nd { color: var(--warn); }
 .chip.sel { background: color-mix(in srgb, var(--accent) 26%, var(--panel)); box-shadow: inset 0 0 0 2px var(--accent); }
@@ -91,7 +95,7 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 .acts button:hover:not(:disabled) { border-color: var(--accent); }
 .acts button:disabled { opacity: .4; cursor: default; }
 .acts .sep { width: 1px; height: 22px; background: var(--line); }
-.barnum { position: absolute; top: 26px; font-size: 9px; color: var(--muted); padding-left: 3px; z-index: 2; }
+.barnum { position: absolute; top: 46px; font-size: 9px; color: var(--muted); padding-left: 3px; z-index: 2; }
 #ph { position: absolute; top: 0; width: 2px; background: var(--accent); z-index: 4; pointer-events: none; }
 .tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
 .tools button { padding: 4px 11px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
@@ -159,12 +163,12 @@ audio { width: 100%; margin-top: 10px; }
       <div class="tools">
         <button id="zoom-out">横向 −</button><button id="zoom-in">横向 ＋</button>
         <button id="fit">回到音符区</button>
-        <span id="roll-info"></span>
+        <span id="roll-info"></span><b id="mode-tag" style="color:var(--accent)"></b>
       </div>
       <div id="roll"><div id="inner">
         <div id="keys"></div><div id="grid"></div><div id="ph"></div>
       </div></div>
-      <div class="note-txt">88 键，音块长度即和弦持续时间。点网格可跳转播放，点顶部和弦条可编辑。</div>
+      <div class="note-txt">最上方是时间轴，拖动可改播放位置。单击和弦块试听，双击进入编辑模式；点卷帘区域跳转播放。</div>
 
       <div id="editor">
         <div class="ed-head">
@@ -193,6 +197,7 @@ const PC = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const BLACK = [1,3,6,8,10];
 const LOW = 21, HIGH = 108, KEYS = HIGH - LOW + 1;   // A0..C8，88 键
 const KH = 11, GUTTER = 58;                          // 每键高度、左侧键盘宽度
+const RULER = 20, STRIP = 26, HEAD = RULER + STRIP;  // 时间轴、和弦条、两者合计
 const $ = id => document.getElementById(id);
 let DATA=null, CELLS=[], BARLINES=[], NOTES=[], PPS=90;
 
@@ -338,6 +343,21 @@ const Synth = {
     }
   },
 
+  /* 单独弹一个音，用于试听。和排程播放共用同一套钢琴 buffer。 */
+  pluck(pitch, at, span) {
+    let best = this.buffers[0];
+    for (const b of this.buffers) {
+      if (Math.abs(pitch - b.pitch) < Math.abs(pitch - best.pitch)) best = b;
+    }
+    const src = this.ctx.createBufferSource(), env = this.ctx.createGain();
+    src.buffer = best.buf;
+    src.playbackRate.value = Math.pow(2, (pitch - best.pitch) / 12);
+    env.gain.setValueAtTime(pitch < 48 ? 0.9 : 0.6, at);
+    env.gain.setTargetAtTime(0.0001, at + span, 0.05);
+    src.connect(env); env.connect(this.gain);
+    src.start(at); src.stop(at + span + 0.4);
+  },
+
   /* 漂移自愈：<audio> 和 AudioContext 是两套独立时钟，长时间播放会分家。
      每帧按对齐关系反推「现在应该是音频的第几秒」，和实际值差太多就重排。 */
   drift() {
@@ -383,30 +403,39 @@ function render(d) {
 function buildRoll() {
   const W = Math.max(DATA.duration * PPS, 200), H = KEYS * KH;
   $("inner").style.width = (GUTTER + W) + "px";
-  $("inner").style.height = (H + 26) + "px";
-  $("ph").style.height = (H + 26) + "px";
+  $("inner").style.height = (H + HEAD) + "px";
+  $("ph").style.height = (H + HEAD) + "px";
 
   // 左侧 88 键。黑键窄一点、压在白键上，形成常见的键盘轮廓。
   let keys = "";
   for (let p = HIGH; p >= LOW; p--) {
     const black = isBlack(p);
-    keys += `<div class="k ${black ? "b" : "w"}" style="top:${yOf(p) + 26}px;height:${KH}px">`
+    keys += `<div class="k ${black ? "b" : "w"}" style="top:${yOf(p) + HEAD}px;height:${KH}px">`
           + (p % 12 === 0 ? noteName(p) : "") + `</div>`;
   }
-  $("keys").style.height = (H + 26) + "px";
+  $("keys").style.height = (H + HEAD) + "px";
   $("keys").innerHTML = keys;
 
   const g = $("grid");
-  g.style.left = GUTTER + "px"; g.style.width = W + "px"; g.style.height = (H + 26) + "px";
+  g.style.left = GUTTER + "px"; g.style.width = W + "px"; g.style.height = (H + HEAD) + "px";
 
   let html = "";
   // 行底色：黑键行加深，读音高时有参照
   for (let p = HIGH; p >= LOW; p--) {
-    if (isBlack(p)) html += `<div class="row" style="top:${yOf(p) + 26}px;height:${KH}px;width:${W}px;background:var(--grid-row)"></div>`;
+    if (isBlack(p)) html += `<div class="row" style="top:${yOf(p) + HEAD}px;height:${KH}px;width:${W}px;background:var(--grid-row)"></div>`;
   }
   // 拍线与小节线
-  for (const t of DATA.beats.times) html += `<div class="gl" style="left:${t * PPS}px;height:${H + 26}px"></div>`;
-  for (const b of BARLINES) html += `<div class="gl bar" style="left:${b.start * PPS}px;height:${H + 26}px"></div>`;
+  for (const t of DATA.beats.times) html += `<div class="gl" style="left:${t * PPS}px;height:${H + HEAD}px"></div>`;
+  for (const b of BARLINES) html += `<div class="gl bar" style="left:${b.start * PPS}px;height:${H + HEAD}px"></div>`;
+  // 顶部时间轴：拖动改播放位置
+  const step = DATA.duration > 180 ? 30 : DATA.duration > 60 ? 10 : 5;
+  html += `<div class="ruler" id="ruler" style="width:${W}px">`;
+  for (let t = 0; t <= DATA.duration; t += step) {
+    html += `<div class="tk" style="left:${t * PPS}px">`
+          + `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}</div>`;
+  }
+  html += `<div class="head" id="ruler-head"></div></div>`;
+
   // 顶部和弦条（sticky，横向跟着滚）
   html += `<div class="strip" style="width:${W}px">`;
   CELLS.forEach((c, i) => {
@@ -419,21 +448,41 @@ function buildRoll() {
   for (const b of BARLINES) html += `<div class="barnum" style="left:${b.start * PPS}px">${b.index}</div>`;
   // 音块
   NOTES.forEach((n, i) => {
-    html += `<div class="note" data-i="${i}" style="left:${n.start * PPS}px;top:${yOf(n.pitch) + 26 + 1}px;`
+    html += `<div class="note" data-i="${i}" style="left:${n.start * PPS}px;top:${yOf(n.pitch) + HEAD + 1}px;`
           + `width:${Math.max((n.end - n.start) * PPS - 1, 2)}px;height:${KH - 2}px" title="${noteName(n.pitch)}"></div>`;
   });
   g.innerHTML = html;
 
-  // 整个网格都是编辑面：点哪里都选中那一刻的和弦。
-  // 只让 26 像素高的和弦条可点太隐蔽了——想改和弦的人会自然去点音块。
+  const timeAt = e => Math.max((e.clientX - g.getBoundingClientRect().left) / PPS, 0);
+  const cellAt = t => CELLS.findIndex(c => t >= c.start && t < c.end);
+
   g.onclick = e => {
-    const rect = g.getBoundingClientRect();
-    const t = Math.max((e.clientX - rect.left) / PPS, 0);
-    const i = CELLS.findIndex(c => t >= c.start && t < c.end);
+    const y = e.clientY - g.getBoundingClientRect().top;
+    if (y < RULER) return;                       // 时间轴由拖动逻辑单独处理
+    const t = timeAt(e), i = cellAt(t);
     if (i >= 0) Edit.select(i);
-    // 和弦条下方才跳转播放；点和弦条只选中，免得选个和弦就把播放位置带跑
-    if (e.clientY - rect.top > 26) $("audio").currentTime = t;
+    if (y < HEAD) { Edit.audition(i); return; }  // 单击和弦块 = 试听，不跳转播放
+    $("audio").currentTime = t;                  // 卷帘区域 = 跳转播放
   };
+
+  g.ondblclick = e => {
+    const y = e.clientY - g.getBoundingClientRect().top;
+    if (y < RULER || y >= HEAD) return;
+    const i = cellAt(timeAt(e));
+    if (i >= 0) { Edit.select(i); Edit.setMode(true); }   // 双击和弦块 = 进编辑模式
+  };
+
+  // 时间轴拖动：按下即跳转，拖动跟随，松手结束
+  const ruler = g.querySelector("#ruler");
+  if (ruler) {
+    const scrub = e => { $("audio").currentTime = Math.min(timeAt(e), DATA.duration); };
+    ruler.onpointerdown = e => {
+      ruler.setPointerCapture(e.pointerId);
+      scrub(e);
+      ruler.onpointermove = ev => { if (ev.buttons) scrub(ev); };
+    };
+    ruler.onpointerup = e => { ruler.releasePointerCapture(e.pointerId); ruler.onpointermove = null; };
+  }
   $("roll-info").textContent = `${CELLS.length} 段和弦　${NOTES.length} 个音块　${PPS.toFixed(0)} px/秒`;
 }
 
@@ -441,7 +490,7 @@ function fitToNotes() {
   if (!NOTES.length) return;
   const lo = Math.min(...NOTES.map(n => n.pitch)), hi = Math.max(...NOTES.map(n => n.pitch));
   const mid = (yOf(hi) + yOf(lo)) / 2;
-  $("roll").scrollTop = Math.max(mid - $("roll").clientHeight / 2 + 26, 0);
+  $("roll").scrollTop = Math.max(mid - $("roll").clientHeight / 2 + HEAD, 0);
 }
 
 /* ---------- 播放同步 ---------- */
@@ -449,6 +498,8 @@ let lit = new Set();
 function loop() {
   const a = $("audio"), t = a.currentTime;
   $("ph").style.left = (GUTTER + t * PPS) + "px";
+  const head = $("ruler-head");
+  if (head) head.style.left = (t * PPS) + "px";
 
   const now = new Set();
   NOTES.forEach((n, i) => { if (t >= n.start && t < n.end) now.add(i); });
@@ -556,6 +607,28 @@ const Edit = {
 
   select(i) { this.sel = i; this.paint(); },
 
+  /* 编辑模式。双击和弦块进入，Esc 退出。
+     不设模式的话，单击既要试听又要编辑，两种意图分不开。 */
+  mode: false,
+  setMode(on) {
+    this.mode = on;
+    $("roll").style.outline = on ? "2px solid var(--accent)" : "";
+    $("mode-tag").textContent = on ? "编辑模式（Esc 退出）" : "";
+    this.paint();
+  },
+
+  /* 试听：播这一格实际的音块，而不是名义上的和弦。
+     音高集合被编辑过之后，两者可能不一样——听到的必须是实际内容。 */
+  audition(i) {
+    const c = CELLS[i];
+    if (!c) return;
+    Synth.ensure();
+    if (Synth.ctx.state === "suspended") Synth.ctx.resume();
+    const at = Synth.ctx.currentTime + 0.02;
+    const span = Math.min(c.end - c.start, 1.8);
+    for (const p of this.notesOf(c.chord)) Synth.pluck(p, at, span);
+  },
+
   paint() {
     const c = CELLS[this.sel];
     $("editor").classList.add("on");   // 面板常驻，否则用户不知道有编辑功能
@@ -658,7 +731,7 @@ $("ed-reset").onclick = () => Edit.reset();
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT") return;
   if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); Edit.undo(); }
-  if (e.key === "Escape") Edit.select(-1);
+  if (e.key === "Escape") { if (Edit.mode) Edit.setMode(false); else Edit.select(-1); }
 });
 
 /* 导出时把当前（可能已编辑的）格子发给服务端 */
