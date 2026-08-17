@@ -760,6 +760,7 @@ const Edit = {
     }
     this.rebuild();
     this.select(CELLS.findIndex(c => t >= c.start && t < c.end));
+    this.play([pitch], 0.9);      // 加音时听一下，确认点对了音高
   },
 
   /* 删掉一个音块。按音高 + 起点定位所属格子，不用 NOTES 的下标——
@@ -849,16 +850,20 @@ const Edit = {
     this.paint();
   },
 
+  /* 弹一组音。试听、改和弦、加音块三处共用，免得各写一遍。 */
+  play(pitches, span = 1.2) {
+    if (!pitches || !pitches.length) return;
+    Synth.ensure();
+    if (Synth.ctx.state === "suspended") Synth.ctx.resume();
+    const at = Synth.ctx.currentTime + 0.02;
+    for (const p of pitches) Synth.pluck(p, at, span);
+  },
+
   /* 试听：播这一格实际的音块，而不是名义上的和弦。
      音高集合被编辑过之后，两者可能不一样——听到的必须是实际内容。 */
   audition(i) {
     const c = CELLS[i];
-    if (!c) return;
-    Synth.ensure();
-    if (Synth.ctx.state === "suspended") Synth.ctx.resume();
-    const at = Synth.ctx.currentTime + 0.02;
-    const span = Math.min(c.end - c.start, 1.8);
-    for (const p of (c.pitches || [])) Synth.pluck(p, at, span);
+    if (c) this.play(c.pitches, Math.min(c.end - c.start, 1.8));
   },
 
   paint() {
@@ -902,12 +907,15 @@ const Edit = {
       : (canSplit ? "" : "把播放头停在这段中间才能拆分");
   },
 
-  /* 改和弦 = 把音高集合换成该和弦的构成音。标签随后由 rebuild 重新派生。 */
+  /* 改和弦 = 把音高集合换成该和弦的构成音。标签随后由 rebuild 重新派生。
+     改完顺手试听一下——改和弦是为了让它听着对，不听等于闭着眼改。 */
   setChord(chord) {
     if (this.sel < 0) return;
     this.snapshot();
-    CELLS[this.sel].pitches = this.notesOf(chord);
+    const pitches = this.notesOf(chord);
+    CELLS[this.sel].pitches = pitches;
     this.rebuild();
+    this.play(pitches);
   },
 
   /* 拆分点吸附到最近的拍点——和弦边界必须落在拍上，这是前面定下的规则，
