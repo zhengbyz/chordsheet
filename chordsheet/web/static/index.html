@@ -81,6 +81,14 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 620; }
 .chip.unk { color: var(--bad); font-weight: 700; }
 .chip.sel { background: color-mix(in srgb, var(--accent) 26%, var(--panel)); box-shadow: inset 0 0 0 2px var(--accent); }
 .chip { cursor: pointer; }
+/* 拖动手柄：只在编辑模式、且该边界是小节内部边界时出现。
+   贴着小节线的边界不可动——格子按小节切分，动它会破坏小节结构。 */
+.chip .h { position: absolute; top: 0; width: 7px; height: 26px; cursor: ew-resize; z-index: 1; }
+.chip .h.l { left: 0; } .chip .h.r { right: 0; }
+.chip .h::after { content: ""; position: absolute; top: 4px; bottom: 4px; left: 2px; width: 3px;
+  background: var(--accent); border-radius: 2px; opacity: .55; }
+.chip .h:hover::after { opacity: 1; }
+body.dragging { cursor: ew-resize; user-select: none; }
 .note.edited { box-shadow: inset 0 0 0 1px rgba(0,0,0,.18), 0 0 0 1px var(--accent); }
 
 /* ---- 编辑面板 ---- */
@@ -395,6 +403,7 @@ function render(d) {
   $("warnings").innerHTML = w.join("<br>");
 
   PPS = Math.max(28, Math.min(140, 900 / Math.max(DATA.duration, 1) * 6));
+  Edit.grid = null;                 // 换曲子要重算半拍网格
   Edit.original = JSON.stringify(CELLS);
   Edit.history = []; Edit.sel = -1;
   $("ed-undo").disabled = true;
@@ -443,9 +452,17 @@ function buildRoll() {
   CELLS.forEach((c, i) => {
     const w = (c.end - c.start) * PPS;
     const cls = c.chord === "?" ? " unk" : (c.diatonic || c.chord === "N" ? "" : " nd");
+    // 手柄只在编辑模式出现，且只给小节内部边界——贴小节线的边界不可动
+    const prev = CELLS[i - 1], next = CELLS[i + 1];
+    let handles = "";
+    if (Edit.mode && w > 16) {
+      if (prev && prev.bar === c.bar) handles += `<div class="h l" data-e="l"></div>`;
+      if (next && next.bar === c.bar) handles += `<div class="h r" data-e="r"></div>`;
+    }
     html += `<div class="chip${cls}" data-c="${i}"`
           + ` style="left:${c.start * PPS}px;width:${Math.max(w - 1, 2)}px"`
-          + ` title="第 ${c.bar} 小节　${prettyChord(c.chord)}　点击编辑">${w > 30 ? prettyChord(c.chord) : ""}</div>`;
+          + ` title="第 ${c.bar} 小节　${prettyChord(c.chord)}">`
+          + `${w > 30 ? prettyChord(c.chord) : ""}${handles}</div>`;
   });
   html += `</div>`;
   for (const b of BARLINES) html += `<div class="barnum" style="left:${b.start * PPS}px">${b.index}</div>`;
@@ -462,8 +479,15 @@ function buildRoll() {
   /* 用 closest() 判断点到了哪个元素，不做纵坐标运算。
      和弦条是 sticky 的，视觉位置和网格坐标在滚动后会差一个 scrollTop——
      按坐标判断会导致「滚动之后点和弦块变成跳转播放」这种时好时坏的 bug。 */
+  g.onpointerdown = e => {
+    const handle = e.target.closest(".chip .h");
+    if (!handle) return;
+    Edit.beginDrag(e, +handle.closest(".chip").dataset.c, handle.dataset.e);
+  };
+
   g.onclick = e => {
     if (e.target.closest(".ruler")) return;      // 时间轴由拖动逻辑单独处理
+    if (e.target.closest(".chip .h")) return;    // 拖手柄不算点击
     const chip = e.target.closest(".chip");
     if (chip) {                                  // 单击和弦块 = 选中 + 试听，不跳转播放
       const i = +chip.dataset.c;
@@ -618,10 +642,79 @@ const Edit = {
     }
     NOTES.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
     buildRoll(); this.paint();
-    if (!$("audio").paused) Synth.schedule();
+    // 拖动中每帧重排会把 Web Audio 打爆，松手时才排一次
+    if (!this.dragging && !$("audio").paused) Synth.schedule();
   },
 
   select(i) { this.sel = i; this.paint(); },
+
+  /* 半拍网格。和弦边界原本锁在整拍上（识别结果如此），手动编辑放开到半拍。
+     拍点之间插中点即可；末拍之后按中位拍长外推一格。 */
+  grid: null,
+  halfBeats() {
+    if (this.grid) return this.grid;
+    const b = DATA.beats.times;
+    if (!b || b.length < 2) return (this.grid = [0, DATA.duration]);
+    const step = b[b.length - 1] - b[b.length - 2];
+    const out = [];
+    for (let i = 0; i < b.length; i++) {
+      out.push(b[i]);
+      const next = i + 1 < b.length ? b[i + 1] : b[i] + step;
+      out.push((b[i] + next) / 2);
+    }
+    out.push(b[b.length - 1] + step);
+    return (this.grid = out.filter(t => t <= DATA.duration + 1e-6));
+  },
+  snapHalf(t) {
+    const g = this.halfBeats();
+    return g.reduce((best, x) => (Math.abs(x - t) < Math.abs(best - t) ? x : best), g[0]);
+  },
+  minSpan() {
+    const g = this.halfBeats();
+    return g.length > 1 ? (g[1] - g[0]) * 0.9 : 0.1;   // 至少一个半拍
+  },
+
+  /* 拖动和弦块边界。
+     监听挂在 window 上而不是手柄本身：拖动过程中 buildRoll 会替换整个网格的
+     innerHTML，手柄元素随之消失，挂在它上面的监听和指针捕获都会断掉。
+
+     拖动中不重排试听——每帧重排会把 Web Audio 打爆。松手才重排一次。 */
+  dragging: false,
+  beginDrag(event, index, side) {
+    const cell = CELLS[index];
+    const other = side === "r" ? CELLS[index + 1] : CELLS[index - 1];
+    if (!cell || !other || other.bar !== cell.bar) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.snapshot();
+    this.dragging = true;
+    document.body.classList.add("dragging");
+
+    const min = this.minSpan();
+    const rect = $("grid").getBoundingClientRect();
+    const lo = (side === "r" ? cell.start : other.start) + min;
+    const hi = (side === "r" ? other.end : cell.end) - min;
+
+    const move = ev => {
+      const t = Math.min(Math.max(this.snapHalf((ev.clientX - rect.left) / PPS), lo), hi);
+      const boundary = side === "r" ? cell.end : cell.start;
+      if (Math.abs(t - boundary) < 1e-6) return;   // 量化后没变化就不重绘
+      if (side === "r") { cell.end = t; other.start = t; }
+      else { cell.start = t; other.end = t; }
+      this.rebuild();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("dragging");
+      this.dragging = false;
+      this.rebuild();                              // 这次会把试听一起重排
+      this.select(index);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  },
 
   /* 编辑模式。双击和弦块进入，Esc 退出。
      不设模式的话，单击既要试听又要编辑，两种意图分不开。 */
@@ -629,7 +722,7 @@ const Edit = {
   setMode(on) {
     this.mode = on;
     $("roll").style.outline = on ? "2px solid var(--accent)" : "";
-    $("mode-tag").textContent = on ? "编辑模式（Esc 退出）" : "";
+    $("mode-tag").textContent = on ? "编辑模式：拖和弦块两边改长度，Esc 退出" : "";
     this.paint();
   },
 
